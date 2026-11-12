@@ -8,7 +8,8 @@ import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
 import {
   LIFE_SKILLS, LIFE, MATS, BUFFS, LIFE_MAX_LV, XP_TABLE, lifeLevel, actionTime, burnChance, stealChance,
-  hasInputs, matValue, startAction, stopAction, usePotion, sellMat, divineMult, describeLog,
+  hasInputs, matValue, startAction, stopAction, usePotion, sellMat, describeLog,
+  TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -415,8 +416,11 @@ export class UI {
       if (a) {
         const k = LIFE[a.skill];
         const ad = k.actions.find((x) => x.id === a.action);
-        setText(laText, `${k.icon} ${k.name} · ${ad.icon} ${ad.name} (${actionTime(s, a.skill, ad).toFixed(1)}초)`);
+        setText(laText, L.stun > 0
+          ? `🚨 들켰습니다! ${L.stun.toFixed(1)}초 기절 · ${ad.icon} ${ad.name}`
+          : `${k.icon} ${k.name} · ${ad.icon} ${ad.name} (${actionTime(s, a.skill, ad).toFixed(1)}초)`);
         laBar.style.width = (L.progress * 100).toFixed(1) + '%';
+        act.classList.toggle('stunned', L.stun > 0);
       } else {
         setText(laText, '쉬는 중 · 아래에서 행동을 골라 시작하세요');
         laBar.style.width = '0%';
@@ -483,10 +487,23 @@ export class UI {
         hBar.style.width = (cur / need * 100).toFixed(1) + '%';
         setText(hTxt, `${fmt(cur)} / ${fmt(need)} XP`);
       }
-      setText(hBonus, k.id === 'divine' ? `현재 보너스: 모든 피해 x${divineMult(s).toFixed(2)}` : '레벨이 오를수록 행동이 빨라집니다 (최대 40%)');
+      let bonus;
+      if (k.tool) bonus = `특수 효과: ${perkText(s, k.id)}`;
+      else if (PRODUCTION.includes(k.id)) bonus = `작업대 속도 x${toolInfo(s, 'workshop').cur.speed}`;
+      else if (k.id === 'divine') bonus = activePrayer(s) ? `기도 중: ${activePrayer(s).icon} ${activePrayer(s).name} (${activePrayer(s).desc})` : '켜 둔 기도가 없습니다 (아래에서 선택)';
+      else bonus = '요구 레벨보다 높을수록 조금씩 빨라집니다 (최대 +25%)';
+      setText(hBonus, bonus);
     });
 
+    // 채집 도구 / 가공 작업대
+    const toolKey = k.tool || (PRODUCTION.includes(k.id) ? 'workshop' : null);
+    if (toolKey) this.lifeToolCard(panel, toolKey);
+
+    // 신성술: 기도 목록
+    if (k.id === 'divine') this.lifePrayers(panel);
+
     for (const a of k.actions) {
+      if (a.group) panel.appendChild(h('div', 'section-title', a.group));
       const r = makeRow(a.icon);
       setText(r.name, a.name);
       r.btn.addEventListener('click', () => {
@@ -504,7 +521,7 @@ export class UI {
         if (a.equip) parts.push(`획득: ${a.equip.slots.map((x) => SLOTS[x].name).join('/')} · ${RARITIES[a.equip.r].name} · Lv${Math.max(1, s.maxStage)}`);
         if (a.gold) parts.push(`골드 약 ${fmt(a.gold * g.goldMult() * goldPerKillAt(s))}`);
         if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)}`).join(', '));
-        const extra = [`XP ${a.xp}`, `${actionTime(s, k.id, a).toFixed(1)}초`];
+        const extra = [`XP ${fmt(actionXp(s, a))}`, `${actionTime(s, k.id, a).toFixed(1)}초 (x${speedMult(s, k.id, a).toFixed(2)})`];
         if (k.id === 'thief') extra.push(`성공 ${fmtPct(stealChance(s, a))}`);
         const bc = burnChance(s, k.id, a);
         if (bc > 0) extra.push(`태울 확률 ${fmtPct(bc)}`);
@@ -518,6 +535,64 @@ export class UI {
         setText(r.bt1, locked ? '🔒 잠김' : running ? '■ 중지' : '▶ 시작');
         setText(r.bt2, locked ? `Lv ${a.lvl} 필요` : !running && !ok ? '재료 부족' : '');
         setDisabled(r.btn, locked || (!running && !ok));
+      });
+    }
+  }
+
+  lifeToolCard(panel, key) {
+    const g = this.game;
+    const s = g.s;
+    const t = TOOLS[key];
+    const card = h('div', 'card toolcard', `
+      <div class="tc-top"><span class="tc-name"></span><span class="tc-speed"></span></div>
+      <div class="tc-next muted"></div>
+      <button class="btn small primary tc-btn"></button>`);
+    panel.appendChild(card);
+    const nm = $('.tc-name', card);
+    const sp = $('.tc-speed', card);
+    const nx = $('.tc-next', card);
+    const bt = $('.tc-btn', card);
+    bt.addEventListener('click', () => {
+      if (upgradeTool(g, key)) this.toast(`${t.icon} ${toolInfo(s, key).name}(으)로 업그레이드!`, 'epic');
+    });
+    this.updaters.push(() => {
+      const info = toolInfo(s, key);
+      setText(nm, `${t.icon} ${info.name}`);
+      setText(sp, `속도 x${info.cur.speed}`);
+      if (!info.next) {
+        setText(nx, '최고 단계입니다');
+        bt.style.display = 'none';
+        return;
+      }
+      const mats = Object.entries(info.next.mats).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(s.life.bank[id] || 0)})`);
+      const req = [info.next.lvl ? `Lv ${info.next.lvl}` : null, info.next.gold ? `💰 ${fmt(info.next.gold)}` : null, ...mats].filter(Boolean);
+      setText(nx, `다음: ${info.next.pre} ${t.name} (속도 x${info.next.speed}) · 필요: ${req.join(', ')}`);
+      const chk = toolUpgradeCheck(s, key);
+      setText(bt, chk.ok ? '업그레이드' : chk.why);
+      setDisabled(bt, !chk.ok);
+    });
+  }
+
+  lifePrayers(panel) {
+    const s = this.game.s;
+    panel.appendChild(h('div', 'section-title', '기도 (1개만 켤 수 있음)'));
+    for (const p of PRAYERS) {
+      const r = makeRow(p.icon);
+      setText(r.name, p.name);
+      setText(r.lv, `Lv ${p.lvl}`);
+      setText(r.desc, p.desc);
+      r.btn.addEventListener('click', () => {
+        if (setPrayer(s, p.id)) this.toast(s.life.prayer ? `${p.icon} ${p.name} 시작` : '기도를 껐습니다', 'good');
+      });
+      panel.appendChild(r.el);
+      this.updaters.push(() => {
+        const locked = lifeLevel(s, 'divine') < p.lvl;
+        const on = s.life.prayer === p.id && !locked;
+        r.el.classList.toggle('locked', locked);
+        r.el.classList.toggle('running', on);
+        setText(r.bt1, locked ? '🔒 잠김' : on ? '■ 끄기' : '🙏 켜기');
+        setText(r.bt2, locked ? `Lv ${p.lvl} 필요` : '');
+        setDisabled(r.btn, locked);
       });
     }
   }

@@ -6,7 +6,7 @@ import {
   ENHANCE_MAX, itemPct, itemName, itemSellPrice, enhanceCost, prestigeGain,
 } from './data.js';
 import { fmt } from './format.js';
-import { lifeUpdate, autoEat, buffMult, divineMult, newLifeLog } from './life.js';
+import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, boneForStage, bankAdd } from './life.js';
 
 const HERO = Object.fromEntries(HERO_UPGRADES.map((u) => [u.id, u]));
 const RELIC = Object.fromEntries(RELICS.map((r) => [r.id, r]));
@@ -69,10 +69,11 @@ export class Game {
 
   heroAtk() {
     return this.heroVal('atk') * this.equipMult('weapon') * (1 + RELIC.sword.per * this.relic('sword')) * this.essenceMult()
-      * buffMult(this.s, 'atk') * divineMult(this.s);
+      * buffMult(this.s, 'atk') * (1 + prayerBonus(this.s, 'atk')) * (1 + prayerBonus(this.s, 'dmg'));
   }
   heroMaxHp() {
-    return this.heroVal('hp') * this.equipMult('armor') * (1 + RELIC.shield.per * this.relic('shield')) * buffMult(this.s, 'hp');
+    return this.heroVal('hp') * this.equipMult('armor') * (1 + RELIC.shield.per * this.relic('shield')) * buffMult(this.s, 'hp')
+      * (1 + prayerBonus(this.s, 'hp'));
   }
   atkSpeed() { return this.heroVal('speed') * (this.skillActive('frenzy') ? 2 : 1) * buffMult(this.s, 'speed'); }
   critChance() { return this.heroVal('crit'); }
@@ -80,7 +81,7 @@ export class Game {
   compBaseDps(c) { return c.val(this.s.comps[c.id] || 0); }
   compMult() {
     return this.equipMult('accessory') * (1 + RELIC.banner.per * this.relic('banner')) * this.essenceMult()
-      * (this.skillActive('rally') ? 3 : 1) * divineMult(this.s);
+      * (this.skillActive('rally') ? 3 : 1) * (1 + prayerBonus(this.s, 'comp')) * (1 + prayerBonus(this.s, 'dmg'));
   }
   compDps() {
     let sum = 0;
@@ -92,7 +93,8 @@ export class Game {
   }
   totalDps() { return this.heroDps() + this.compDps(); }
   goldMult() {
-    return this.heroVal('goldUp') * (1 + RELIC.grail.per * this.relic('grail')) * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold');
+    return this.heroVal('goldUp') * (1 + RELIC.grail.per * this.relic('grail')) * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold')
+      * (1 + prayerBonus(this.s, 'gold'));
   }
   dropChance() { return 0.05 * (1 + RELIC.clover.per * this.relic('clover')); }
 
@@ -336,9 +338,9 @@ export class Game {
     return item;
   }
 
+  // 지역(20스테이지 단위)마다 다른 뼈
   addBones(n) {
-    const b = this.s.life.bank;
-    b.bone = (b.bone || 0) + n;
+    bankAdd(this.s, boneForStage(this.s.stage), n);
   }
 
   giveItem(item) {

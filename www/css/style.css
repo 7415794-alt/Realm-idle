@@ -452,3 +452,10 @@ textarea.code {
 .bankrow .bbtns { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
 .offlife { margin-top: 10px; padding: 10px; border-radius: 10px; background: rgba(0, 0, 0, .25); font-size: 13px; line-height: 1.6; text-align: left; }
 .offlife b { display: block; margin-bottom: 4px; }
+.lifeact.stunned { border-color: var(--bad); }
+.lifeact.stunned .lbar div { background: linear-gradient(90deg, #ef4444, #fca5a5); }
+.toolcard { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tc-top { display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 14px; }
+.tc-speed { color: var(--good); font-size: 13px; }
+.tc-next { line-height: 1.5; word-break: keep-all; }
+.tc-btn { align-self: flex-end; }
