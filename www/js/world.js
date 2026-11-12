@@ -1,5 +1,5 @@
-// 모험 시스템: 날씨 · 펫 · 스킬 보스 · 퀘스트 (DOM 없음)
-import { goldPerKill, RARITIES, DROP_SLOTS, LOOT_POOLS, itemName } from './data.js';
+// 모험 시스템: 날씨 · 펫 · 스킬 보스 · 퀘스트 · 박물관 (DOM 없음)
+import { goldPerKill, RARITIES, DROP_SLOTS, LOOT_POOLS, itemName, MUSEUM, ZONE_SET_BONUS, ZONES } from './data.js';
 import { fmt } from './format.js';
 import { lifeLevel, toolInfo, prayerBonus, bankAdd, LIFE, LIFE_SKILLS, MATS } from './life.js';
 
@@ -79,7 +79,7 @@ function climateBonus(key) {
 
 // ---------- 펫 ----------
 // 1마리만 데리고 다님. 획득처:
-// shop 상점(골드 · 최고 스테이지 조건) · boss 지역 보스 · skill 생활 스킬 중 · sboss 스킬 보스 상자 ·
+// shop 상점(골드 · 처치한 몬스터 최고 레벨 조건) · boss 지역 보스 · skill 생활 스킬 중 · sboss 스킬 보스 상자 ·
 // monster 일반 몬스터 · weather 해당 날씨에 사냥 · season 해당 계절 주간 퀘스트 · quest 원정 퀘스트
 const P = (id, name, icon, src, bonus, extra = {}) => ({ id, name, icon, src, bonus, ...extra });
 const ZONE_BOSS_PETS = [
@@ -162,7 +162,7 @@ export const PETS = [
 ];
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
 export const PET_SRC = {
-  shop: '🛒 상점', boss: '👑 지역 보스 (1%, 변이는 스테이지 80+에서 0.2%)', skill: '⛏️ 생활 스킬 (행동마다 아주 드물게)',
+  shop: '🛒 상점', boss: '👑 지역 보스 (1%, 변이는 두 바퀴째 지역(Lv 81+) 보스에게서 0.2%)', skill: '⛏️ 생활 스킬 (행동마다 아주 드물게)',
   sboss: '🐉 스킬 보스 상자', monster: '👾 일반 몬스터 (지역별 0.01%)', weather: '🌦️ 해당 날씨에 사냥 (0.005%)',
   season: '🍂 해당 계절 주간 퀘스트 보상 (25%)', quest: '🗺️ 원정 퀘스트',
 };
@@ -204,12 +204,12 @@ export function setPet(game, id) {
 // 처치 시 펫 굴림: 지역 보스 · 일반 몬스터 · 날씨 (모두 드롭률 효과 적용)
 export function rollKillPets(game, m) {
   const s = game.s;
-  const z = Math.floor((s.stage - 1) / 10) % 8;
+  const z = m.z % ZONES.length;
   const lm = game.lootMult();
   if (m.zoneBoss) {
     const base = PETS.find((p) => p.src === 'boss' && p.zone === z && !p.mutated);
     if (base && Math.random() < BOSS_PET_CHANCE * lm) givePet(game, base.id);
-    if (s.stage > 80 && Math.random() < MUTANT_CHANCE * lm) givePet(game, base.id + '_m');
+    if (m.z >= ZONES.length && Math.random() < MUTANT_CHANCE * lm) givePet(game, base.id + '_m');
   } else if (!m.boss) {
     const mp = PETS.find((p) => p.src === 'monster' && p.zone === z);
     if (mp && Math.random() < MONSTER_PET_CHANCE * lm) givePet(game, mp.id);
@@ -228,9 +228,46 @@ export function rollSeasonPet(game) {
   return p && !hasPet(game.s, p.id) && Math.random() < 0.25 && givePet(game, p.id) ? p : null;
 }
 
-// 펫 + 날씨 + 계절 효과 합
+// ---------- 박물관 ----------
+// 몬스터 고유 전리품을 정해진 수만큼 기증하면 영구 효과. 한 지역 6종을 모두 채우면 세트 효과
+export const MUSEUM_BY = Object.fromEntries(MUSEUM.map((e) => [e.id, e]));
+export const museumCount = (s, id) => s.world.museum[id] || 0;
+export const museumDone = (s, e) => museumCount(s, e.id) >= e.need;
+export const zoneSetDone = (s, z) => MUSEUM.every((e) => e.z !== z || museumDone(s, e));
+// 효과 합 (기증할 때만 다시 계산)
+let mCache = null;
+let mCacheS = null;
+function museumBonus(s, key) {
+  if (mCacheS !== s || !mCache) {
+    mCache = {};
+    mCacheS = s;
+    const add = (b) => { for (const [k, v] of Object.entries(b)) mCache[k] = (mCache[k] || 0) + v; };
+    for (const e of MUSEUM) if (museumDone(s, e)) add(e.bonus);
+    ZONE_SET_BONUS.forEach((b, z) => { if (zoneSetDone(s, z)) add(b); });
+  }
+  return mCache[key] || 0;
+}
+export function museumTotals(s) { museumBonus(s, 'x'); return { ...mCache }; }
+export function donate(game, id) {
+  const s = game.s;
+  const e = MUSEUM_BY[id];
+  if (!e) return 0;
+  const n = Math.min(s.life.bank[id] || 0, e.need - museumCount(s, id));
+  if (n <= 0) return 0;
+  const setBefore = zoneSetDone(s, e.z);
+  bankAdd(s, id, -n);
+  s.world.museum[id] = museumCount(s, id) + n;
+  mCache = null;
+  game.dirtyStats();
+  if (museumDone(s, e)) game.toast(`박물관 전시 완성! ${MATS[id].icon} ${MATS[id].name} · ${bonusText(e.bonus)}`, 'epic');
+  if (!setBefore && zoneSetDone(s, e.z)) game.toast(`🏛️ ${ZONES[e.z].name} 세트 완성! ${bonusText(ZONE_SET_BONUS[e.z])}`, 'legend');
+  return n;
+}
+export const museumProgress = (s) => MUSEUM.filter((e) => museumDone(s, e)).length;
+
+// 펫 + 날씨 + 계절 + 박물관 효과 합
 export function worldBonus(s, key) {
-  return (activePet(s)?.bonus[key] || 0) + climateBonus(key);
+  return (activePet(s)?.bonus[key] || 0) + climateBonus(key) + museumBonus(s, key);
 }
 
 // ---------- 스킬 보스 ----------
@@ -261,7 +298,7 @@ export function sbDamage(s, b) {
   return Math.pow(lv, 1.5) * 400 * speed;
 }
 export function sbCheck(s, b) {
-  if (s.maxStage < SB.unlockStage) return { ok: false, why: `스테이지 ${SB.unlockStage} 필요` };
+  if (s.maxStage < SB.unlockStage) return { ok: false, why: `Lv ${SB.unlockStage} 몬스터 처치 필요` };
   if (lifeLevel(s, b.skill) < SB.unlockLv) return { ok: false, why: `${LIFE[b.skill].name} Lv ${SB.unlockLv}` };
   const st = sbState(s, b.id);
   if (st.dmg >= SB.hp) return { ok: false, why: '이번 주 처치 완료' };
@@ -319,7 +356,7 @@ export function attackSkillBoss(game, id) {
 const lifeIds = () => LIFE_SKILLS.map((k) => k.id);
 const QUEST_TYPES = {
   kill: { icon: '⚔️', text: (n) => `몬스터 ${fmt(n)}마리 처치`, daily: 150 },
-  boss: { icon: '👑', text: (n) => `보스 ${fmt(n)}회 처치`, daily: 5 },
+  boss: { icon: '👑', text: (n) => `지역 보스 ${fmt(n)}회 처치`, daily: 3 },
   life: { icon: '⛏️', text: (n, key) => `${LIFE[key].icon} ${LIFE[key].name} ${fmt(n)}회`, daily: 60 },
   gold: { icon: '💰', text: (n) => `골드 ${fmt(n)} 획득`, daily: 0 },
   tap: { icon: '👆', text: (n) => `전투 화면 ${fmt(n)}번 탭`, daily: 100 },
@@ -363,21 +400,21 @@ export const questReward = (s, weekly) => ({
 
 // 원정 퀘스트: 순서대로. reach 계열은 현재 상태로 판정, 나머지는 시작 후 누적
 export const CHAIN = [
-  { type: 'stage', goal: 10, text: '스테이지 10 도달', reward: { floor: 2 } },
+  { type: 'zone', goal: 1, text: '지도 지역 2곳 개방', reward: { floor: 2 } },
   { type: 'kill', goal: 500, text: '몬스터 500마리 처치', reward: { floor: 3 } },
   { type: 'lifeTotal', goal: 50, text: '총 생활 레벨 50 달성', reward: { floor: 3 } },
-  { type: 'stage', goal: 30, text: '스테이지 30 도달', reward: { floor: 4 } },
+  { type: 'zone', goal: 3, text: '지도 지역 4곳 개방', reward: { floor: 4 } },
   { type: 'zoneBoss', goal: 5, text: '지역 보스 5회 처치', reward: { floor: 5 } },
   { type: 'sbdmg', goal: 1e6, text: '스킬 보스에게 피해 1M 누적', reward: { floor: 5 } },
-  { type: 'stage', goal: 60, text: '스테이지 60 도달', reward: { floor: 6 } },
+  { type: 'zone', goal: 6, text: '지도 지역 7곳 개방', reward: { floor: 6 } },
   { type: 'lifeTotal', goal: 300, text: '총 생활 레벨 300 달성', reward: { floor: 6 } },
-  { type: 'stage', goal: 100, text: '스테이지 100 도달', reward: { floor: 7, pet: 'spirit' } },
+  { type: 'zone', goal: 10, text: '지도 지역 11곳 개방', reward: { floor: 7, pet: 'spirit' } },
 ];
 export function chainProgress(s) {
   const c = CHAIN[s.world.quests.chain];
   if (!c) return null;
   let n = s.world.quests.chainN;
-  if (c.type === 'stage') n = s.maxStage;
+  if (c.type === 'zone') n = s.maxZone;
   else if (c.type === 'lifeTotal') n = lifeIds().reduce((a, id) => a + lifeLevel(s, id), 0);
   return { ...c, n: Math.min(n, c.goal), done: n >= c.goal };
 }
@@ -450,5 +487,6 @@ export function newWorldState() {
     sb: {},
     sbWeek: null,
     quests: { day: null, week: null, daily: [], weekly: [], chain: 0, chainN: 0 },
+    museum: {},
   };
 }

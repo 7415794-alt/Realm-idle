@@ -2,13 +2,12 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.0.0';
+export const VERSION = '3.1.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
-// ---- 전투 / 스테이지 ----
-export const STAGE_KILLS = 10;      // 보스 등장까지 처치 수
-export const BOSS_TIME = 30;        // 보스 제한 시간(초)
+// ---- 전투 ----
+export const BOSS_TIME = 40;        // 지역 보스 제한 시간(초)
 export const RESPAWN = 0.35;        // 몬스터 재등장 시간
 export const HERO_REVIVE = 4;       // 영웅 부활 시간
 export const INV_MAX = 60;          // 가방 칸 수
@@ -19,16 +18,13 @@ export const power = (lvl) => Math.pow(1.12, Math.max(1, lvl) - 1);
 export const MON_GROWTH = 1.145;
 export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
 export const goldPerKill = (s) => 2 * Math.pow(1.13, s - 1);
-export const isZoneBoss = (s) => s % 10 === 0;
-export const bossGoldMult = (s) => (isZoneBoss(s) ? 15 : 6);
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
   const p = monPower(stage);
-  const ease = Math.min(1, 0.45 + 0.055 * (stage - 1)); // 초반 10스테이지 완화
-  const m = { hp: 40 * p * ease, def: 5 * p, str: 26 * p * ease, interval: 2 };
-  if (kind === 'boss') { m.hp *= 6; m.def *= 1.3; m.str *= 1.3; }
-  if (kind === 'zoneBoss') { m.hp *= 10; m.def *= 1.5; m.str *= 1.6; m.interval = 1.8; }
+  const ease = Math.min(1, 0.4 + 0.04 * (stage - 1)); // 초반(Lv 16 미만) 완화
+  const m = { hp: 40 * p * ease, def: 5 * p, str: 21 * p * ease * ease, interval: 2 };
+  if (kind === 'zoneBoss') { m.hp *= 5; m.def *= 1.25; m.str *= 1.3; m.interval = 1.8; }
   return m;
 }
 
@@ -74,7 +70,7 @@ export const ZONES = [
   {
     mats: ['mon_hide', 'mon_claw', 'mon_web', 'mon_horn'],
     name: '바위 협곡', sky: ['#f6c48a', '#f7e3c3'], hill: '#b07a4f', ground: '#8a5b38',
-    monsters: [['🦂', '협곡전갈'], ['🦅', '바위독수리'], ['🐺', '회색늑대'], ['🦬', '성난 들소'], ['🕷️', '동굴거미']],
+    monsters: [['🦂', '협곡전갈'], ['🦅', '바위독수리'], ['🐺', '회색늑대'], ['🐃', '성난 들소'], ['🕷️', '동굴거미']],
     boss: ['🦍', '협곡의 폭군'],
   },
   {
@@ -116,6 +112,66 @@ export function zoneOf(stage) {
   const cycle = Math.floor(idx / ZONES.length);
   return { ...zone, title: zone.name + (ROMAN[cycle] ?? ` ${cycle + 1}`) };
 }
+
+// ---- 지도 ----
+// 지역 z(0부터, 8개를 넘으면 더 강해진 채로 반복) · 몬스터 mi(0~4 일반, 5 지역 보스)
+// 몬스터 레벨 = z x 10 + [1, 3, 5, 7, 9], 보스 = z x 10 + 10. 지역 보스를 처음 잡으면 다음 지역이 열림
+export const BOSS_MI = 5;
+export const MON_LV = [1, 3, 5, 7, 9, 10];
+export const monLevel = (z, mi) => z * 10 + MON_LV[mi];
+export const AUTO_STREAK = 10;  // 자동 진행: 같은 몬스터를 이만큼 연속 처치하면 다음 몬스터로
+export const BOSS_RETRY = 30;   // 자동 진행: 보스에게 지면 이만큼 더 사냥한 뒤 재도전
+export const BOSS_GOLD = 15;    // 지역 보스 골드 배율
+export function zoneTitle(z) {
+  const zone = ZONES[z % ZONES.length];
+  const cycle = Math.floor(z / ZONES.length);
+  return zone.name + (ROMAN[cycle] ?? ` ${cycle + 1}`);
+}
+export function monsterInfo(z, mi) {
+  const zone = ZONES[z % ZONES.length];
+  const boss = mi === BOSS_MI;
+  const [e, name] = boss ? zone.boss : zone.monsters[mi];
+  return { z, mi, e, name, boss, lvl: monLevel(z, mi), drop: zone.drops[mi] };
+}
+
+// ---- 몬스터 고유 전리품 (지역마다 일반 5 + 보스 1) · 고기 ----
+// [id, 이름, 아이콘]
+const ZONE_DROPS = [
+  [['u_silk', '비단실', '➰'], ['u_rattail', '쥐꼬리', '〰️'], ['u_shell', '달팽이 껍데기', '🐚'], ['u_quill', '고슴도치 가시', '📌'], ['u_snakeskin', '뱀 허물', '🎗️'], ['u_tusk', '우두머리 엄니', '🌙']],
+  [['u_frogskin', '개구리 점액 피부', '💚'], ['u_bloodsac', '피주머니', '🎈'], ['u_tail', '도마뱀 꼬리', '➿'], ['u_spore', '버섯 포자', '🌫️'], ['u_moss', '이끼 등껍질', '🌱'], ['u_croc', '늪 군주의 가죽', '👜']],
+  [['u_stinger', '전갈 독침', '📍'], ['u_eaglefeather', '독수리 깃털', '🎐'], ['u_pelt', '늑대 털가죽', '🧶'], ['u_bisonhorn', '들소 뿔', '📯'], ['u_venomgland', '거미 독샘', '⚗️'], ['u_fist', '폭군의 주먹뼈', '👊']],
+  [['u_wisp', '도깨비불', '🕯️'], ['u_batwing', '박쥐 날개', '🦇'], ['u_raptorclaw', '랩터 발톱', '🦖'], ['u_mask', '요괴 가면', '👺'], ['u_crabshell', '용암 게딱지', '🦀'], ['u_heart', '화염룡의 심장', '💗']],
+  [['u_tear', '정령의 눈물', '💧'], ['u_icefeather', '얼음 깃털', '❄️'], ['u_baleen', '고래 수염', '🎋'], ['u_paw', '곰 발바닥', '🐾'], ['u_core', '골렘 핵', '⚙️'], ['u_ivory', '매머드 상아', '🦷']],
+  [['u_chain', '망령의 사슬', '⛓️'], ['u_skull', '해골', '💀'], ['u_nail', '썩은 손톱', '💅'], ['u_owleye', '부엉이 눈', '👁️'], ['u_fang', '흡혈귀 송곳니', '🗡️'], ['u_crown', '그림자 왕관', '👑']],
+  [['u_breath', '정령의 숨결', '💨'], ['u_thunder', '천둥 깃털', '⚡'], ['u_jelly', '로열 젤리', '🍯'], ['u_dust', '나비 날개 가루', '✨'], ['u_cloud', '구름 조각', '☁️'], ['u_eye', '폭풍의 눈', '🌀']],
+  [['u_tentacle', '문어 촉수', '🐙'], ['u_inksac', '먹물주머니', '🖤'], ['u_sharktooth', '상어 이빨', '🦈'], ['u_puffgland', '복어 독샘', '🐡'], ['u_conch', '거대 소라', '🐚'], ['u_amber', '용연향', '🔮']],
+];
+const ZONE_MEATS = [
+  ['meat_0', '들짐승 고기', '🍖'], ['meat_1', '늪 생물 고기', '🍗'], ['meat_2', '들소 고기', '🥩'], ['meat_3', '랩터 고기', '🍖'],
+  ['meat_4', '매머드 고기', '🥩'], ['meat_5', '수상한 고기', '🍖'], ['meat_6', '천둥새 고기', '🍗'], ['meat_7', '심해 생물 살', '🍣'],
+];
+ZONES.forEach((zone, z) => { zone.drops = ZONE_DROPS[z].map((d) => d[0]); zone.meat = ZONE_MEATS[z][0]; });
+
+// 박물관: 고유 전리품을 정해진 수만큼 기증하면 영구 효과. 지역 6종을 모두 채우면 세트 효과 추가
+export const MUSEUM_NEED = { normal: 100, boss: 15 };
+const MUSEUM_KEYS = [['atk', 0.02], ['def', 0.03], ['hp', 0.03], ['gold', 0.04], ['drop', 0.03], ['dmg', 0.04]];
+export const ZONE_SET_BONUS = [
+  { gather: 0.05 }, { prod: 0.05 }, { xp: 0.05 }, { crit: 0.01 }, { hp: 0.05 }, { ls: 0.005 }, { drop: 0.05 }, { dmg: 0.05 },
+];
+export const MUSEUM = ZONE_DROPS.flatMap((list, z) => list.map(([id], mi) => ({
+  id, z, mi, boss: mi === BOSS_MI,
+  need: mi === BOSS_MI ? MUSEUM_NEED.boss : MUSEUM_NEED.normal,
+  bonus: { [MUSEUM_KEYS[mi][0]]: MUSEUM_KEYS[mi][1] },
+})));
+
+// 창고 재료 정의 (life.js MATS에 합쳐짐)
+export const LOOT_MATS = {
+  ...Object.fromEntries(ZONE_DROPS.flatMap((list, z) => list.map(([id, name, icon], mi) => [id, {
+    name, icon, value: mi === BOSS_MI ? 8 + z * 6 : 1 + z, unique: true,
+  }]))),
+  ...Object.fromEntries(ZONE_MEATS.map(([id, name, icon], z) => [id, { name, icon, value: 0.4 + z * 0.4, meat: true }])),
+  chest: { name: '보물 상자', icon: '🎁', value: 30, chest: true },
+};
 
 // ---- 스킬 ----
 export const SKILLS = [
@@ -296,24 +352,32 @@ export const EQUIP_POOL = [
 const EQUIP_C = [0.02, 0.015, 0.012, 0.01, 0.008, 0.006, 0.004];
 export const zoneIndex = (stage) => Math.floor((Math.max(1, stage) - 1) / 10);
 
-// kind: 'normal' | 'boss' | 'zoneBoss', mi: 몬스터 번호 (0~4)
+// z: 지역 번호, mi: 몬스터 번호 (0~4 일반, 5 보스)
 const lootCache = new Map();
-export function lootTable(stage, mi = 0, kind = 'normal') {
-  const z = zoneIndex(stage);
-  const key = `${z}/${mi}/${kind}`;
+export function lootTable(z, mi = 0) {
+  const key = `${z}/${mi}`;
   if (lootCache.has(key)) return lootCache.get(key);
   const zone = ZONES[z % ZONES.length];
-  const boss = kind !== 'normal';
-  const qm = kind === 'zoneBoss' ? 5 : boss ? 3 : 1;
+  const boss = mi === BOSS_MI;
+  const qm = boss ? 5 : 1;
   const L = [];
+  // 몬스터 고유 전리품 · 고기 · 뼈
+  L.push({ mat: zone.drops[mi], c: boss ? 1 : 0.2, q: boss ? [1, 2] : [1, 1] });
+  L.push({ mat: zone.meat, c: boss ? 1 : 0.15, q: [qm, qm * 2] });
   L.push({ mat: BONES[Math.min(BONES.length - 1, Math.floor(z / 2))], c: boss ? 1 : 0.5, q: [qm, qm * 2] });
+  // 지역 재료 · 채집물 · 약초 · 룬 원석 · 보석
   const zm = zone.mats;
   L.push({ mat: zm[mi % zm.length], c: boss ? 1 : 0.4, q: [qm, qm * 2] });
   L.push({ mat: zm[(mi + 1) % zm.length], c: boss ? 0.6 : 0.15, q: [qm, qm] });
   const pool = LOOT_POOLS[['log', 'ore', 'fish'][mi % 3]];
   L.push({ mat: pool[Math.min(pool.length - 1, Math.floor((z * pool.length) / 12))], c: boss ? 0.8 : 0.12, q: [qm, qm * 3] });
   L.push({ mat: z >= 4 ? 'herb_rare' : 'herb', c: boss ? 0.5 : 0.05, q: [1, qm] });
+  L.push({ mat: 'rune_ess', c: boss ? 0.5 : 0.04, q: [qm, qm * 3] });
   L.push({ mat: LOOT_POOLS.gem[Math.min(3, Math.floor(z / 2))], c: boss ? 0.1 : 0.004, q: [1, 1] });
+  // 같은 지역 이웃 몬스터의 고유 전리품 (드물게)
+  if (!boss) L.push({ mat: zone.drops[(mi + 1) % 5], c: 0.02, q: [1, 1] });
+  L.push({ mat: 'chest', c: boss ? 0.08 : 0.002, q: [1, 1] });
+  // 정해진 장비 7종
   const rnd = seeded(z * 131 + mi * 17 + (boss ? 7 : 1));
   const picks = [...EQUIP_POOL];
   for (const c of EQUIP_C) {

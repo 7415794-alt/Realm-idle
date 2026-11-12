@@ -2,9 +2,9 @@
 // 영웅 능력치는 장비(+강화) · 기도 · 물약 · 펫 · 날씨 · 스킬로만 정해짐
 // 전투 방식(근접 · 원거리 · 마법)은 장착한 무기로 결정
 import {
-  STAGE_KILLS, BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP,
-  goldPerKill, isZoneBoss, bossGoldMult, monsterStats, maxHitFor, incomingHit,
-  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, zoneOf, SKILLS, RARITIES, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
+  goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
+  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, SKILLS, RARITIES, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
@@ -35,6 +35,8 @@ export class Game {
       invDirty: true,
       statCache: null,
       worldT: 0,
+      streak: 0,   // 자동 진행: 지금 대상 연속 처치 수
+      retry: 0,    // 자동 진행: 후퇴 후 다시 나아가기까지 남은 처치 수
       skill: Object.fromEntries(SKILLS.map((k) => [k.id, { cd: 0, t: 0 }])),
     };
     worldTick(this);
@@ -85,7 +87,7 @@ export class Game {
       str: g.str * melee,
       rng: g.rng * all * (1 + this.bonus('rng')),
       mag: g.mag * all * (1 + this.bonus('mag')),
-      def: g.def * (1 + this.bonus('def')),
+      def: g.def * buffMult(s, 'def') * (1 + this.bonus('def')),
       hp: g.hp * buffMult(s, 'hp') * (1 + this.bonus('hp')),
       crit: Math.min(STAT_CAPS.crit, g.crit + this.bonus('crit')),
       ls: Math.min(STAT_CAPS.ls, g.ls + this.bonus('ls')),
@@ -126,26 +128,41 @@ export class Game {
     return VIP.mult * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
   }
   // 전리품 확률 배율 (VIP · 펫 · 날씨 · 기도)
-  lootMult() { return VIP.mult * (1 + this.bonus('drop')); }
+  lootMult() { return VIP.mult * buffMult(this.s, 'drop') * (1 + this.bonus('drop')); }
 
-  // ---------- 전투 ----------
+  // ---------- 전투 · 지도 ----------
+  // 지금 대상: s.target = { z: 지역, mi: 몬스터(5 = 보스) }. s.stage = 대상 몬스터 레벨
+  target() { return this.s.target; }
+  canTarget(z, mi) { return z >= 0 && z <= this.s.maxZone && mi >= 0 && mi <= BOSS_MI; }
+  // 지도에서 직접 고르면 자동 진행을 끄고 그 몬스터만 사냥
+  selectTarget(z, mi, manual = true) {
+    const s = this.s;
+    if (!this.canTarget(z, mi)) return false;
+    s.target = { z, mi };
+    s.stage = monLevel(z, mi);
+    if (manual) s.settings.autoProgress = false;
+    this.rt.streak = 0;
+    // 처치 직후(재등장 대기)면 대기 후 새 대상이 나옴
+    if (!(this.rt.monster?.dead && this.rt.respawn > 0)) this.spawn();
+    return true;
+  }
+  toggleAutoProgress() {
+    const s = this.s;
+    s.settings.autoProgress = !s.settings.autoProgress;
+    this.rt.streak = 0;
+    this.rt.retry = 0;
+  }
+  killCount(z, mi) { return this.s.bestiary[`${z}_${mi}`] || 0; }
+
   spawn() {
     const s = this.s;
     const rt = this.rt;
-    const st = s.stage;
-    const zone = zoneOf(st);
-    const boss = s.kills >= STAGE_KILLS && s.autoAdvance;
-    let m;
-    if (boss) {
-      const zb = isZoneBoss(st);
-      m = { e: zone.boss[0], name: zone.boss[1], boss: true, zoneBoss: zb, mi: 0, ...monsterStats(st, zb ? 'zoneBoss' : 'boss') };
-      rt.bossTime = BOSS_TIME;
-    } else {
-      const mi = Math.floor(Math.random() * zone.monsters.length);
-      const [e, name] = zone.monsters[mi];
-      m = { e, name, boss: false, mi, ...monsterStats(st) };
-      m.hp *= 0.9 + Math.random() * 0.2;
-    }
+    const { z, mi } = s.target;
+    const info = monsterInfo(z, mi);
+    s.stage = info.lvl;
+    const m = { ...info, zoneBoss: info.boss, ...monsterStats(info.lvl, info.boss ? 'zoneBoss' : 'normal') };
+    if (info.boss) rt.bossTime = BOSS_TIME;
+    else m.hp *= 0.9 + Math.random() * 0.2;
     m.maxHp = m.hp;
     m.dead = false;
     rt.monster = m;
@@ -155,7 +172,8 @@ export class Game {
   }
 
   monsterLoot(m = this.rt.monster) {
-    return lootTable(this.s.stage, m?.mi || 0, m?.zoneBoss ? 'zoneBoss' : m?.boss ? 'boss' : 'normal');
+    const t = this.s.target;
+    return lootTable(m?.z ?? t.z, m?.mi ?? t.mi);
   }
 
   fx(o) {
@@ -227,31 +245,51 @@ export class Game {
     m.dead = true;
     m.hp = 0;
     rt.respawn = RESPAWN;
-    const gold = goldPerKill(s.stage) * (m.boss ? bossGoldMult(s.stage) : 1) * this.goldMult();
+    const gold = goldPerKill(m.lvl) * (m.boss ? BOSS_GOLD : 1) * this.goldMult();
     this.addGold(gold);
     s.stats.kills++;
+    const key = `${m.z}_${m.mi}`;
+    s.bestiary[key] = (s.bestiary[key] || 0) + 1;
     questEvent(s, 'kill', 1);
-    if (m.boss) questEvent(s, 'boss', 1);
-    if (m.zoneBoss) questEvent(s, 'zoneBoss', 1);
+    if (m.boss) { questEvent(s, 'boss', 1); questEvent(s, 'zoneBoss', 1); }
     rollKillPets(this, m);
     this.fx({ type: 'gold', anchor: 'mon', text: '+' + fmt(gold), life: 1.1 });
 
     // 전리품: 몬스터별 표 + 보스는 추가로 고등급 장비
     const got = this.rollLoot(this.monsterLoot(m), m.boss);
     if (got.length) this.fx({ type: 'loot', anchor: 'mon', text: got.slice(0, 3).map((id) => MATS[id]?.icon || '').join(''), life: 1.1 });
-    if (m.zoneBoss) { this.dropItem(8); this.dropItem(4); }
-    else if (m.boss) this.dropItem(4);
+    if (m.boss) { this.dropItem(8); this.dropItem(4); }
 
+    // 최고 레벨 갱신 (스킬 해금 등)
+    if (m.lvl > s.maxStage) {
+      const before = s.maxStage;
+      s.maxStage = m.lvl;
+      for (const k of SKILLS) if (k.unlock > before && k.unlock <= m.lvl) this.toast(`새 스킬 해금: ${k.icon} ${k.name}`, 'epic');
+    }
     if (m.boss) {
       s.stats.bossKills++;
-      s.stage++;
-      s.kills = 0;
-      if (s.stage > s.maxStage) s.maxStage = s.stage;
-      this.toast(`${m.name} 처치! 스테이지 ${s.stage} 진입`, 'good');
-      for (const k of SKILLS) if (k.unlock === s.stage && s.maxStage === s.stage) this.toast(`새 스킬 해금: ${k.icon} ${k.name}`, 'epic');
-    } else {
-      s.kills = Math.min(STAGE_KILLS, s.kills + 1);
+      if (m.z === s.maxZone) {
+        s.maxZone++;
+        this.toast(`${m.name} 처치! 새 지역 개방: ${zoneTitle(s.maxZone)}`, 'epic');
+      } else this.toast(`${m.name} 처치!`, 'good');
     }
+    this.autoProgress(m);
+  }
+
+  // 자동 진행: 같은 몬스터를 AUTO_STREAK번 잡으면 다음 몬스터 → 보스 → 다음 지역
+  autoProgress(m) {
+    const s = this.s;
+    const rt = this.rt;
+    if (!s.settings.autoProgress) return;
+    rt.streak++;
+    if (rt.retry > 0) rt.retry--;
+    const { z, mi } = s.target;
+    if (m.boss) {
+      if (z < s.maxZone) this.selectTarget(z + 1, 0, false);
+      return;
+    }
+    if (rt.streak < AUTO_STREAK || rt.retry > 0) return;
+    this.selectTarget(z, mi + 1, false);
   }
 
   addGold(g) {
@@ -260,10 +298,14 @@ export class Game {
     questEvent(this.s, 'gold', g);
   }
 
+  // 보스전 실패: 자동 진행 중이면 마지막 일반 몬스터로 물러나 BOSS_RETRY마리 더 사냥 후 재도전
   failBoss(msg) {
-    this.s.autoAdvance = false;
+    const s = this.s;
     this.toast(`보스 도전 실패 - ${msg}`, 'bad');
-    this.spawn();
+    if (s.settings.autoProgress) {
+      this.rt.retry = BOSS_RETRY;
+      this.selectTarget(s.target.z, 4, false);
+    } else this.spawn();
   }
 
   heroDie() {
@@ -275,32 +317,25 @@ export class Game {
     const m = rt.monster;
     if (m && m.boss) {
       this.failBoss('영웅이 쓰러졌습니다');
+      return;
+    }
+    // 자동 진행 중이면 한 단계 약한 몬스터로 후퇴
+    const { z, mi } = s.target;
+    if (s.settings.autoProgress && (mi > 0 || z > 0)) {
+      this.rt.retry = BOSS_RETRY;
+      if (mi > 0) this.selectTarget(z, mi - 1, false);
+      else this.selectTarget(z - 1, 4, false);
+      this.toast('영웅이 쓰러졌습니다. 더 약한 몬스터로 후퇴합니다.', 'bad');
     } else {
-      s.autoAdvance = false;
-      if (s.stage > 1) {
-        s.stage--;
-        s.kills = STAGE_KILLS;
-      }
-      this.toast('영웅이 쓰러졌습니다. 이전 스테이지로 후퇴합니다.', 'bad');
+      this.toast('영웅이 쓰러졌습니다.', 'bad');
       this.spawn();
     }
   }
 
-  challengeBoss() {
-    const s = this.s;
-    s.autoAdvance = true;
-    const m = this.rt.monster;
-    if (s.kills >= STAGE_KILLS && (!m || !m.boss) && this.rt.heroDead <= 0) this.spawn();
-  }
-
-  toggleAutoAdvance() {
-    if (this.s.autoAdvance) {
-      this.s.autoAdvance = false;
-      const m = this.rt.monster;
-      if (m && m.boss && !m.dead) this.spawn(); // 보스전 포기
-    } else {
-      this.challengeBoss();
-    }
+  // 보스전 포기 (지도에서 일반 몬스터 고르기와 같음)
+  retreat() {
+    const { z } = this.s.target;
+    this.selectTarget(z, 4, false);
   }
 
   // ---------- 스킬 ----------
@@ -339,8 +374,8 @@ export class Game {
       // 성향: 지정값 → 아니면 60% 확률로 지금 전투 방식
       item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
     }
-    // 영웅 등급 이상: 특수 옵션 1개 (등급이 높으면 더 강함)
-    if (r >= 3) {
+    // 영웅 등급 이상(또는 전리품 공예): 특수 옵션 1개
+    if (r >= 3 || spec.sp) {
       const keys = Object.keys(SPECIALS);
       const k = keys[Math.floor(Math.random() * keys.length)];
       item.sp = { [k]: SPECIALS[k] * (0.7 + Math.random() * 0.6) };
@@ -362,10 +397,11 @@ export class Game {
   }
 
   // 생활 스킬(대장기술·제작)로 만든 장비: 역대 최고 스테이지 레벨, 최소 등급 보장, 성향은 지금 전투 방식
-  craftItem(slots, floor, notify = true) {
+  // sp: 특수 옵션 보장 (전리품 공예)
+  craftItem(slots, floor, notify = true, sp = false) {
     const slot = slots[Math.floor(Math.random() * slots.length)];
     const r = Math.max(floor, rollRarity(2));
-    const spec = slot === 'weapon' ? { kind: this.randomKindOfStyle() } : { aff: this.style() };
+    const spec = slot === 'weapon' ? { kind: this.randomKindOfStyle(), sp } : { aff: this.style(), sp };
     const item = this.newItem(slot, r, this.s.maxStage, spec);
     questEvent(this.s, 'craft', 1);
     if (notify) this.toast(`제작 완료: [${RARITIES[r].name}] ${itemName(item)}`, r >= 6 ? 'legend' : r >= 4 ? 'epic' : 'good');
@@ -497,37 +533,68 @@ export class Game {
   // ---------- 오프라인 ----------
   offlineCapSec() { return OFFLINE_CAP; }
 
+  // 오프라인: 지금 고른 몬스터를 계속 사냥한 것으로 계산 (효율 50%, 보스는 일반 몬스터로 대체)
   applyOffline(sec) {
     const s = this.s;
     const t = Math.min(sec, this.offlineCapSec());
-    const m = monsterStats(s.stage);
+    const { z } = s.target;
+    const mi = s.target.mi === BOSS_MI ? 4 : s.target.mi;
+    const lvl = monLevel(z, mi);
+    const m = monsterStats(lvl);
     const tpk = Math.max(m.hp / Math.max(1e-9, this.dpsVs(m.def)), 0.3) + RESPAWN;
     const kills = (t / tpk) * 0.5;
-    const gold = kills * goldPerKill(s.stage) * this.goldMult();
+    const gold = kills * goldPerKill(lvl) * this.goldMult();
     this.addGold(gold);
     s.stats.kills += Math.floor(kills);
+    const key = `${z}_${mi}`;
+    s.bestiary[key] = (s.bestiary[key] || 0) + Math.floor(kills);
     questEvent(s, 'kill', Math.floor(kills));
     s.stats.playTime += t;
-    // 전리품: 다섯 몬스터의 표를 고르게 적용한 기댓값
     const lm = this.lootMult();
-    const per = kills / 5;
     let mats = 0;
     let drops = 0;
-    for (let mi = 0; mi < 5; mi++) {
-      for (const d of lootTable(s.stage, mi, 'normal')) {
-        const exp = per * Math.min(1, d.c * lm);
-        if (d.mat) {
-          const n = Math.floor(exp * (d.q[0] + d.q[1]) / 2 + Math.random());
-          if (n > 0) { bankAdd(s, d.mat, n); mats += n; }
-        } else {
-          const n = Math.min(4, Math.floor(exp + Math.random()));
-          for (let i = 0; i < n && drops < 20; i++, drops++) this.giveItem(this.newItem(d.slot, rollRarity(1), s.stage, d));
-        }
+    for (const d of lootTable(z, mi)) {
+      const exp = kills * Math.min(1, d.c * lm);
+      if (d.mat) {
+        const n = Math.floor(exp * (d.q[0] + d.q[1]) / 2 + Math.random());
+        if (n > 0) { bankAdd(s, d.mat, n); mats += n; }
+      } else {
+        const n = Math.min(6, Math.floor(exp + Math.random()));
+        for (let i = 0; i < n && drops < 20; i++, drops++) this.giveItem(this.newItem(d.slot, rollRarity(1), lvl, d));
       }
     }
     const life = newLifeLog();
     lifeUpdate(this, t, life);
     return { sec: t, gold, kills: Math.floor(kills), drops, bones: mats, life };
+  }
+
+  // ---------- 보물 상자 ----------
+  // 열면: 골드 + (보석 · 지금까지 연 지역의 고유 전리품 · 장비) 중 확률로
+  openChests(n) {
+    const s = this.s;
+    n = Math.min(n, s.life.bank.chest || 0);
+    if (n <= 0) return null;
+    bankAdd(s, 'chest', -n);
+    const lines = [];
+    const gold = goldPerKill(Math.max(1, s.maxStage)) * 80 * n * (0.5 + Math.random()) * this.goldMult();
+    this.addGold(gold);
+    lines.push(`💰 골드 +${fmt(gold)}`);
+    const got = {};
+    const add = (id, q) => { bankAdd(s, id, q); got[id] = (got[id] || 0) + q; };
+    const zTop = Math.min(ZONES.length - 1, s.maxZone);
+    let eq = 0;
+    for (let i = 0; i < n; i++) {
+      if (Math.random() < 0.5) add(LOOT_POOLS.gem[Math.min(3, Math.floor(Math.random() * (zTop / 2 + 1)))], 1);
+      if (Math.random() < 0.6) {
+        const zone = ZONES[Math.floor(Math.random() * (zTop + 1))];
+        add(zone.drops[Math.floor(Math.random() * 5)], 1 + Math.floor(Math.random() * 5));
+      }
+      if (Math.random() < 0.1) add(ZONES[Math.floor(Math.random() * (zTop + 1))].drops[BOSS_MI], 1);
+      if (Math.random() < 0.3) { this.dropItem(6); eq++; }
+    }
+    if (eq) lines.push(`📦 장비 ${eq}개`);
+    for (const [id, q] of Object.entries(got)) if (q > 0) lines.push(`${MATS[id].icon} ${MATS[id].name} +${fmt(q)}`);
+    return lines;
   }
 
   // ---------- 메인 업데이트 ----------

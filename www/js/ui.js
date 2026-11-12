@@ -1,6 +1,7 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, STAGE_KILLS, BOSS_TIME, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
+  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_NEED, ZONE_SET_BONUS,
+  monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
@@ -14,9 +15,23 @@ import {
   climate, bonusText, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
   SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
   CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
+  museumTotals, museumProgress, museumCount, museumDone, zoneSetDone, donate, MUSEUM_BY,
 } from './world.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+
+// 재료 사용처 (생활 스킬 레시피 · 도구 · 박물관)
+let USES = null;
+function matUses(id) {
+  if (!USES) {
+    USES = {};
+    const add = (x, label) => { (USES[x] ||= new Set()).add(label); };
+    for (const k of LIFE_SKILLS) for (const a of k.actions) for (const x of Object.keys(a.in || {})) add(x, k.icon + k.name);
+    for (const tl of Object.values(TOOLS)) for (const tier of tl.tiers) for (const x of Object.keys(tier.mats)) add(x, '🛠️도구');
+    for (const e of MUSEUM) add(e.id, '🏛️박물관');
+  }
+  return [...(USES[id] || [])];
+}
 
 function h(tag, cls, html) {
   const el = document.createElement(tag);
@@ -66,7 +81,7 @@ export class UI {
       panel: $('#panel'), skills: $('#skills'), toasts: $('#toasts'),
       modal: $('#modal'), modalBox: $('#modalBox'),
     };
-    this.dom.bossBtn.addEventListener('click', () => this.game.toggleAutoAdvance());
+    this.dom.bossBtn.addEventListener('click', () => this.openMap());
     this.dom.speedBtn.addEventListener('click', () => {
       this.game.cycleSpeed();
       this.updateSpeed();
@@ -97,9 +112,10 @@ export class UI {
     setText(d.gold, fmt(s.gold));
     setText(d.power, fmt(g.powerScore()));
     setText(d.dps, fmt(g.totalDps()));
-    const zone = zoneOf(s.stage);
-    setText(d.stageName, `스테이지 ${s.stage}`);
-    setText(d.zoneName, zone.title);
+    const tg = s.target;
+    const info = monsterInfo(tg.z, tg.mi);
+    setText(d.stageName, `${info.e} ${info.name} Lv ${info.lvl}`);
+    setText(d.zoneName, zoneTitle(tg.z));
 
     const m = rt.monster;
     if (m && m.boss && !m.dead) {
@@ -107,18 +123,20 @@ export class UI {
       d.progFill.classList.add('boss');
       setText(d.progText, `보스 제한시간 ${Math.max(0, rt.bossTime).toFixed(1)}초`);
     } else {
-      d.progFill.style.width = (s.kills / STAGE_KILLS) * 100 + '%';
       d.progFill.classList.remove('boss');
-      setText(d.progText, s.kills >= STAGE_KILLS ? (s.autoAdvance ? '보스 등장!' : '사냥 중 (보스 대기)') : `처치 ${s.kills} / ${STAGE_KILLS}`);
+      if (!s.settings.autoProgress) {
+        d.progFill.style.width = '100%';
+        setText(d.progText, `🎯 고정 사냥 · 처치 ${fmt(g.killCount(tg.z, tg.mi))}`);
+      } else if (rt.retry > 0) {
+        d.progFill.style.width = (1 - rt.retry / 30) * 100 + '%';
+        setText(d.progText, `▶ 자동 진행 · 재정비 ${rt.retry}마리 남음`);
+      } else {
+        d.progFill.style.width = (Math.min(rt.streak, AUTO_STREAK) / AUTO_STREAK) * 100 + '%';
+        setText(d.progText, `▶ 자동 진행 · ${Math.min(rt.streak, AUTO_STREAK)} / ${AUTO_STREAK}`);
+      }
     }
-    const btn = d.bossBtn;
-    if (s.autoAdvance) {
-      setText(btn, m && m.boss ? '🏳️ 후퇴' : '⏸ 진행 중');
-      btn.classList.remove('pulse');
-    } else {
-      setText(btn, '👑 보스 도전');
-      btn.classList.toggle('pulse', s.kills >= STAGE_KILLS);
-    }
+    // 지도 버튼: 보스를 잡을 수 있는데 아직 다음 지역이 안 열렸으면 강조
+    d.bossBtn.classList.toggle('pulse', !s.settings.autoProgress && tg.z === s.maxZone && tg.mi === 4 && g.killCount(tg.z, 4) >= AUTO_STREAK);
 
     this.updateSpeed();
     this.updateSkills();
@@ -170,7 +188,7 @@ export class UI {
     this.modal('🌙 돌아오셨군요!', `
       <p>자리를 비운 <b>${fmtTime(r.sec)}</b> 동안 원정대가 계속 싸웠습니다.</p>
       <div class="reward">💰 <b>${fmt(r.gold)}</b> 골드</div>
-      <p class="muted">처치 ${fmt(r.kills)} · 장비 ${fmt(r.drops || 0)}개 · 뼈 ${fmt(r.bones || 0)}개 · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>
+      <p class="muted">처치 ${fmt(r.kills)} · 장비 ${fmt(r.drops || 0)}개 · 전리품 ${fmt(r.bones || 0)}개 · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>
       ${r.life ? lifeLines(r.life) : ''}`,
     [{ label: '받기', cls: 'primary' }]);
   }
@@ -185,7 +203,7 @@ export class UI {
       b.title = k.desc;
       b.addEventListener('click', () => {
         if (!this.game.skillUnlocked(k.id)) {
-          this.toast(`스테이지 ${k.unlock} 도달 시 해금: ${k.desc}`);
+          this.toast(`Lv ${k.unlock} 몬스터 처치 시 해금: ${k.desc}`);
           return;
         }
         this.game.useSkill(k.id);
@@ -277,7 +295,7 @@ export class UI {
       const p = activePet(s);
       setText(wx, `${c.weather.icon} ${c.weather.name} · ${c.season.icon} ${c.season.name} · ${p ? p.icon + ' ' + p.name : '펫 없음'} (자세한 효과는 🗺️ 모험 탭)`);
     });
-    this.updaters.push(() => setText(pw, `전투력 ${fmt(g.powerScore())} · 몬스터(스테이지 ${s.stage}) 체력 ${fmt(mon().maxHp || 0)} · 방어 ${fmt(mon().def)} · 힘 ${fmt(mon().str)}`));
+    this.updaters.push(() => setText(pw, `전투력 ${fmt(g.powerScore())} · ${mon().e || ''} ${mon().name || ''} Lv ${s.stage} 체력 ${fmt(mon().maxHp || 0)} · 방어 ${fmt(mon().def)} · 힘 ${fmt(mon().str)}`));
 
     // 지금 몬스터의 전리품 표
     const loot = h('details', 'card loottable');
@@ -285,18 +303,18 @@ export class UI {
     let lootSig = '';
     this.updaters.push(() => {
       const m = g.rt.monster;
-      const sig = `${s.stage}/${m?.mi}/${m?.boss}/${g.lootMult().toFixed(3)}`;
+      const sig = `${s.target.z}/${s.target.mi}/${g.lootMult().toFixed(3)}`;
       if (sig === lootSig) return;
       lootSig = sig;
       const lm = g.lootMult();
       const rows = g.monsterLoot(m).map((d) => {
         const p = Math.min(1, d.c * lm);
-        const label = d.mat ? `${MATS[d.mat].icon} ${MATS[d.mat].name} ${d.q[0] === d.q[1] ? d.q[0] : d.q[0] + '~' + d.q[1]}`
+        const label = d.mat ? `${MATS[d.mat].icon} ${MATS[d.mat].unique ? '<b>' + MATS[d.mat].name + '</b>' : MATS[d.mat].name} ${d.q[0] === d.q[1] ? d.q[0] : d.q[0] + '~' + d.q[1]}`
           : `${d.kind ? WICON[d.kind] : SLOTS[d.slot].icon} ${itemName({ ...d, lvl: s.stage, r: 0, enh: 0 })}${d.aff ? ' (' + STYLES[d.aff].name + ')' : ''}`;
         return `<div class="lrow"><span>${label}</span><b>${fmtPct(p, p < 0.01 ? 2 : 1)}</b></div>`;
       }).join('');
       const open = loot.open;
-      loot.innerHTML = `<summary>🎁 전리품 표 · ${m ? m.e + ' ' + m.name : ''} (드롭률 x${lm.toFixed(2)} 적용)</summary>${rows}<div class="muted lnote">각 항목을 따로 굴립니다. 장비 등급은 따로 정해지고, 보스는 고등급 장비를 추가로 줍니다.</div>`;
+      loot.innerHTML = `<summary>🎁 전리품 표 · ${m ? m.e + ' ' + m.name : ''} (드롭률 x${lm.toFixed(2)} 적용)</summary>${rows}<div class="muted lnote">각 항목을 따로 굴립니다. <b>굵은 글씨</b>는 이 몬스터의 고유 전리품(박물관 · 제작 · 연금술 등에 사용). 장비 등급은 따로 정해지고, 보스는 고등급 장비를 추가로 줍니다.</div>`;
       loot.open = open;
     });
 
@@ -640,6 +658,15 @@ export class UI {
       const desc = $('.rdesc', row);
       const btns = $('.bbtns', row);
       let use = null;
+      if (m.chest) {
+        use = h('button', 'btn small primary', '모두 열기');
+        use.addEventListener('click', () => {
+          const lines = g.openChests(L.bank[id] || 0);
+          if (lines) this.modal('🎁 보물 상자', `<div class="rewardlist">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`, [{ label: '확인', cls: 'primary' }]);
+          this.lifeDirty = true;
+        });
+        btns.appendChild(use);
+      }
       if (m.buff) {
         use = h('button', 'btn small primary', '마시기');
         use.addEventListener('click', () => {
@@ -655,8 +682,11 @@ export class UI {
       });
       btns.appendChild(sell);
       panel.appendChild(row);
-      const info = m.heal ? `음식 · 체력 ${Math.round(m.heal * 100)}% 회복`
-        : m.buff ? `물약 · ${m.buff.map((b) => BUFFS[b].name + ' ' + BUFFS[b].label).join(', ')} ${fmtTime(m.dur)}` : '재료';
+      const uses = matUses(id);
+      const info = (m.heal ? `음식 · 체력 ${Math.round(m.heal * 100)}% 회복`
+        : m.buff ? `물약 · ${m.buff.map((b) => BUFFS[b].name + ' ' + BUFFS[b].label).join(', ')} ${fmtTime(m.dur)}`
+          : m.chest ? '열면 골드 · 보석 · 고유 전리품 · 장비' : m.unique ? '몬스터 고유 전리품' : m.meat ? '고기' : '재료')
+        + (uses.length ? ` · 사용처: ${uses.join(', ')}` : '');
       this.updaters.push(() => {
         const n = L.bank[id] || 0;
         setText(cnt, 'x' + fmt(n));
@@ -667,7 +697,92 @@ export class UI {
     }
   }
 
-  // ---------- 모험 (퀘스트 · 스킬 보스 · 펫 · 날씨) ----------
+  // ---------- 지도 (몬스터 고르기) ----------
+  openMap() {
+    const g = this.game;
+    const s = g.s;
+    const zones = [];
+    for (let z = 0; z <= s.maxZone + 1; z++) zones.push(z);
+    const cur = s.target;
+    const zoneHtml = (z) => {
+      const locked = z > s.maxZone;
+      const base = ZONES[z % ZONES.length];
+      if (locked) {
+        return `<div class="mapzone locked"><div class="mzhead"><span>🔒 ${zoneTitle(z)}</span><span class="muted">Lv ${monLevel(z, 0)}~${monLevel(z, BOSS_MI)}</span></div>
+          <div class="muted mzlock">${zoneTitle(z - 1)}의 보스 ${ZONES[(z - 1) % ZONES.length].boss[0]} ${ZONES[(z - 1) % ZONES.length].boss[1]}를 처치하면 열립니다</div></div>`;
+      }
+      const rows = [0, 1, 2, 3, 4, BOSS_MI].map((mi) => {
+        const info = monsterInfo(z, mi);
+        const on = cur.z === z && cur.mi === mi;
+        const d = MATS[info.drop];
+        return `<button class="mrow${on ? ' on' : ''}${info.boss ? ' boss' : ''}" data-z="${z}" data-mi="${mi}">
+          <span class="me">${info.e}</span>
+          <span class="mn"><b>${info.boss ? '👑 ' : ''}${info.name}</b><small>Lv ${info.lvl} · 처치 ${fmt(g.killCount(z, mi))} · ${d.icon} ${d.name}</small></span>
+          <span class="mgo">${on ? '사냥 중' : '선택'}</span></button>`;
+      }).join('');
+      return `<details class="mapzone" ${z === cur.z ? 'open' : ''}><summary class="mzhead"><span>${base.monsters[0][0]} ${zoneTitle(z)}</span><span class="muted">Lv ${monLevel(z, 0)}~${monLevel(z, BOSS_MI)}</span></summary>${rows}</details>`;
+    };
+    const body = `<p class="muted">몬스터를 고르면 그 몬스터만 계속 사냥합니다 (자동 진행 꺼짐). 지역 보스를 처음 잡으면 다음 지역이 열립니다.</p>
+      <div class="maplist">${zones.map(zoneHtml).join('')}</div>`;
+    const auto = s.settings.autoProgress;
+    const box = this.modal('🗺️ 지도', body, [
+      { label: auto ? '⏸ 자동 진행 끄기' : '▶ 자동 진행 켜기', cls: auto ? '' : 'primary', onClick: () => { g.toggleAutoProgress(); this.openMap(); return true; } },
+      { label: '닫기' },
+    ]);
+    box.querySelectorAll('.mrow').forEach((b) => b.addEventListener('click', () => {
+      g.selectTarget(+b.dataset.z, +b.dataset.mi);
+      this.closeModal();
+      if (this.tab === 'hero') this.showTab('hero', true);
+    }));
+  }
+
+  // ---------- 박물관 ----------
+  advMuseum(panel) {
+    const g = this.game;
+    const s = g.s;
+    const tot = museumTotals(s);
+    const sum = Object.keys(tot).length ? bonusText(tot) : '아직 없음';
+    panel.appendChild(h('div', 'card note', `🏛️ 전시 완성 ${museumProgress(s)} / ${MUSEUM.length} · 지금 효과: ${sum}`));
+    panel.appendChild(h('div', 'muted pad', `몬스터 고유 전리품을 기증하세요. 일반 몬스터 것은 ${MUSEUM_NEED.normal}개, 보스 것은 ${MUSEUM_NEED.boss}개를 채우면 영구 효과를 받고, 한 지역 6종을 모두 채우면 세트 효과가 추가됩니다.`));
+    this.museumOpen ||= { 0: true };
+    ZONES.forEach((zone, z) => {
+      const box = h('details', 'petgroup');
+      box.open = !!this.museumOpen[z];
+      box.addEventListener('toggle', () => { this.museumOpen[z] = box.open; });
+      const list = MUSEUM.filter((e) => e.z === z);
+      const sum = h('summary', '', '');
+      box.appendChild(sum);
+      const setLine = h('div', 'muted lnote', `세트 효과: ${bonusText(ZONE_SET_BONUS[z])}`);
+      box.appendChild(setLine);
+      for (const e of list) {
+        const m = MATS[e.id];
+        const info = monsterInfo(z, e.mi);
+        const row = h('div', 'row bankrow', `
+          <div class="ricon">${m.icon}</div>
+          <div class="rinfo"><div class="rtitle"><span class="rname">${m.name}</span><span class="rlv"></span></div>
+            <div class="rdesc">${info.e} ${info.name} · ${bonusText(e.bonus)}</div></div>
+          <div class="bbtns"><button class="btn small primary">기증</button></div>`);
+        const cnt = $('.rlv', row);
+        const btn = $('button', row);
+        btn.addEventListener('click', () => { const n = donate(g, e.id); if (n > 0) { this.toast(`${m.name} ${fmt(n)}개 기증`, 'good'); this.advDirty = true; } });
+        box.appendChild(row);
+        this.updaters.push(() => {
+          const c = museumCount(s, e.id);
+          const done = c >= e.need;
+          setText(cnt, done ? '✅ 완성' : `${fmt(c)} / ${e.need} (보유 ${fmt(s.life.bank[e.id] || 0)})`);
+          setDisabled(btn, done || !(s.life.bank[e.id] > 0));
+          setText(btn, done ? '완성' : '기증');
+        });
+      }
+      this.updaters.push(() => {
+        const done = list.filter((e) => museumDone(s, e)).length;
+        setText(sum, `${zoneSetDone(s, z) ? '🏆' : zone.monsters[0][0]} ${zone.name} · ${done} / ${list.length}`);
+      });
+      panel.appendChild(box);
+    });
+  }
+
+  // ---------- 모험 (퀘스트 · 박물관 · 스킬 보스 · 펫 · 날씨) ----------
   tabAdv(panel) {
     const g = this.game;
     const s = g.s;
@@ -681,7 +796,7 @@ export class UI {
     this.updaters.push(() => setText(wn, `날씨는 매일 0시, 계절은 매주 월요일에 바뀝니다 · 날씨 변경까지 ${fmtTime(msToNextDay() / 1000)}`));
 
     const seg = h('div', 'buybar');
-    for (const [v, label] of [['quest', '📜 퀘스트'], ['sboss', '🐉 스킬 보스'], ['pet', '🐾 펫']]) {
+    for (const [v, label] of [['quest', '📜 퀘스트'], ['museum', '🏛️ 박물관'], ['sboss', '🐉 스킬 보스'], ['pet', '🐾 펫']]) {
       const b = h('button', this.advView === v ? 'on' : '', label);
       b.addEventListener('click', () => { this.advView = v; this.showTab('adv'); });
       seg.appendChild(b);
@@ -689,6 +804,7 @@ export class UI {
     panel.appendChild(seg);
     if (this.advView === 'sboss') this.advBoss(panel);
     else if (this.advView === 'pet') this.advPets(panel);
+    else if (this.advView === 'museum') this.advMuseum(panel);
     else this.advQuests(panel);
   }
 
@@ -856,7 +972,7 @@ export class UI {
           } else if (src === 'shop') {
             const lockd = s.maxStage < p.stage;
             setText(r.bt1, lockd ? '🔒 잠김' : '구매');
-            setText(r.bt2, lockd ? `스테이지 ${p.stage}` : `💰 ${fmt(petCost(p))}`);
+            setText(r.bt2, lockd ? `Lv ${p.stage} 처치` : `💰 ${fmt(petCost(p))}`);
             setDisabled(r.btn, lockd || s.gold < petCost(p));
           } else {
             setText(r.bt1, '미획득');
@@ -883,7 +999,8 @@ export class UI {
       ['탭 횟수', () => fmt(s.stats.taps)],
       ['쓰러진 횟수', () => fmt(s.stats.deaths || 0)],
       ['최고 등급', () => RARITIES[s.stats.bestRarity || 0].name],
-      ['역대 최고', () => '스테이지 ' + s.maxStage],
+      ['역대 최고', () => `처치 Lv ${s.maxStage} · 지역 ${s.maxZone + 1}곳 개방`],
+      ['박물관', () => `${museumProgress(s)} / ${MUSEUM.length}`],
     ];
     const vals = rows.map(([label]) => {
       const it = h('div', 'stat', `<span>${label}</span><b></b>`);
@@ -935,14 +1052,15 @@ export class UI {
     panel.appendChild(h('div', 'card help', `
       <ul>
         <li>전투 화면을 <b>탭</b>하면 영웅이 추가 공격합니다.</li>
-        <li>스테이지마다 몬스터 ${STAGE_KILLS}마리를 처치하면 <b>보스</b>가 등장합니다 (제한시간 ${BOSS_TIME}초).</li>
-        <li>보스에게 지면 사냥 모드로 바뀝니다. 강해진 뒤 <b>👑 보스 도전</b>을 누르세요.</li>
-        <li>스킬은 스테이지 진행에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
+        <li><b>🗺️ 지도</b>에서 사냥할 몬스터를 직접 고릅니다. 지역마다 일반 몬스터 5종(Lv +1 · 3 · 5 · 7 · 9)과 지역 보스(제한시간 ${BOSS_TIME}초)가 있고, 보스를 처음 잡으면 다음 지역이 열립니다.</li>
+        <li><b>자동 진행</b>을 켜면 같은 몬스터를 ${AUTO_STREAK}마리 잡을 때마다 다음 몬스터 → 보스 → 다음 지역으로 나아가고, 지면 한 단계 물러나 재정비합니다.</li>
+        <li>몬스터마다 <b>고유 전리품</b>이 있습니다. 🏛️ 박물관 기증(영구 효과) · 전리품 공예(특수 옵션 장비) · 연금술 · 비전술 · 신성술에 쓰이고, 고기는 요리, 🎁 보물 상자는 창고에서 엽니다.</li>
+        <li>스킬은 처치한 몬스터 레벨에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
         <li>전투 방식은 무기로 정해집니다: <b>근접</b>(검 · 공격+힘), <b>원거리</b>(석궁·장궁 · 원거리), <b>마법</b>(마법봉·지팡이 · 마법, 방어 관통). 장갑 · 목걸이 · 반지 · 보조장비는 성향이 맞아야 공격 스탯이 오릅니다.</li>
         <li>몬스터마다 <b>전리품 표</b>가 있고 각 항목을 따로 굴립니다. 드롭률 효과(VIP · 펫 · 날씨)는 모든 확률에 곱해집니다.</li>
         <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 12부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
         <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
-        <li>막히면 이전 스테이지에서 장비를 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
+        <li>막히면 약한 몬스터에서 장비와 전리품을 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
         <li><b>👑 VIP++</b>는 무료입니다: 생활 경험치 · 장비 드롭 · 골드 ${VIP.label}.</li>
         <li><b>🗺️ 모험</b> 탭: 일일·주간·원정 퀘스트, 주간 스킬 보스, 펫(1마리 동행), 매일 바뀌는 날씨와 매주 바뀌는 계절 효과.</li>
         <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만듭니다.</li>

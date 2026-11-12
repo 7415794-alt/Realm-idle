@@ -4,16 +4,17 @@ import { newWorldState } from './world.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export function newState() {
   return {
     v: SAVE_VERSION,
     gold: 0,
-    stage: 1,
-    maxStage: 1,
-    kills: 0,
-    autoAdvance: true,
+    stage: 1,         // 지금 대상 몬스터 레벨
+    maxStage: 1,      // 처치한 몬스터 최고 레벨
+    target: { z: 0, mi: 0 }, // 지도에서 고른 몬스터 (z 지역, mi 0~4 일반 · 5 보스)
+    maxZone: 0,       // 열린 지역 중 가장 높은 번호
+    bestiary: {},     // 몬스터별 처치 수 ('z_mi')
     // 시작 장비: 청동 한손검 · 청동 갑옷
     equip: {
       weapon: { id: 1, slot: 'weapon', kind: 'sword', r: 0, lvl: 1, enh: 0 },
@@ -24,7 +25,7 @@ export function newState() {
     inv: [],
     nextId: 3,
     autoSkill: false,
-    settings: { autoEquip: true, autoSell: 0, speed: 1 },
+    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true },
     life: newLifeState(),
     world: newWorldState(),
     stats: {
@@ -44,8 +45,26 @@ function convertItem(it) {
   return out;
 }
 function migrate(obj) {
-  if (!isObj(obj) || (obj.v || 1) >= SAVE_VERSION) return obj;
-  const o = { ...obj, v: SAVE_VERSION };
+  if (!isObj(obj)) return obj;
+  if ((obj.v || 1) < 2) obj = migrateV1(obj);
+  if (obj.v < 3) obj = migrateV2(obj);
+  return obj;
+}
+// v2(스테이지 진행) → v3(지도에서 몬스터 선택): 도달한 스테이지의 지역까지 열고, 그 위치의 몬스터를 대상으로
+function migrateV2(obj) {
+  const o = { ...obj, v: 3 };
+  const st = Math.max(1, o.stage || 1);
+  const ms = Math.max(st, o.maxStage || 1);
+  o.maxZone = Math.floor((ms - 1) / 10);
+  const z = Math.floor((st - 1) / 10);
+  o.target = { z, mi: Math.min(4, Math.floor(((st - 1) % 10) / 2)) };
+  o.stage = z * 10 + 1 + 2 * o.target.mi;
+  delete o.kills;
+  delete o.autoAdvance;
+  return o;
+}
+function migrateV1(obj) {
+  const o = { ...obj, v: 2 };
   const eq = {};
   for (const [k, it] of Object.entries(obj.equip || {})) {
     const c = convertItem(it);
@@ -80,6 +99,9 @@ function merge(def, src) {
 export function hydrate(obj) {
   const st = merge(newState(), migrate(obj));
   delete st.hero; delete st.comps; delete st.relics; delete st.essence;
+  // 지도 대상이 잘못돼도 안전하게
+  const tg = st.target;
+  if (!(tg.z >= 0 && tg.z <= st.maxZone && tg.mi >= 0 && tg.mi <= 5)) st.target = { z: 0, mi: 0 };
   // 장비 id 중복 정리 (시작 장비와 옛 장비가 겹치는 경우)
   const seen = new Set();
   const all = [...Object.values(st.equip).filter(Boolean), ...st.inv];

@@ -1,4 +1,4 @@
-// 밸런스 시뮬레이션: 봇이 장비 자동 장착 · 가장 싼 강화부터 · 막히면 보스 재도전
+// 밸런스 시뮬레이션: 봇이 장비 자동 장착 · 가장 싼 강화부터 · 지도 자동 진행
 // 사용법: node tools/sim.js <시간(h)>  (브라우저 콘솔에서는 runSim(시간)으로도 실행 가능)
 import { Game } from '../www/js/game.js';
 import { newState } from '../www/js/state.js';
@@ -10,7 +10,6 @@ export function runSim(hours = 2, log = console.log) {
   g.s.autoSkill = true;
   const dt = 0.1;
   let lastReport = 0;
-  let lastBoss = 0;
   const rows = [];
   for (let t = 0; t < hours * 3600; t += dt) {
     g.update(dt);
@@ -25,12 +24,11 @@ export function runSim(hours = 2, log = console.log) {
         if (!best || !g.enhance(best.id)) break;
       }
       if (g.s.inv.length > 40) g.sellBelow(3);
-      if (!g.s.autoAdvance && g.s.kills >= 10 && t - lastBoss > 90) { g.challengeBoss(); lastBoss = t; }
     }
     if (t - lastReport >= 600) {
       lastReport = t;
       const eq = SLOT_IDS.filter((k) => g.s.equip[k]).length;
-      const row = `${(t / 3600).toFixed(2)}h stage=${g.s.stage} max=${g.s.maxStage} deaths=${g.s.stats.deaths} gear=${eq}/9 best=${RARITIES[g.s.stats.bestRarity].name} dps=${fmt(g.totalDps())} gold=${fmt(g.s.gold)}`;
+      const row = `${(t / 3600).toFixed(2)}h zone=${g.s.maxZone + 1} lv=${g.s.stage} max=${g.s.maxStage} deaths=${g.s.stats.deaths} gear=${eq}/12 best=${RARITIES[g.s.stats.bestRarity].name} dps=${fmt(g.totalDps())} gold=${fmt(g.s.gold)}`;
       rows.push(row);
       log(row);
     }

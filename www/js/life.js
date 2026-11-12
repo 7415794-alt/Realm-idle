@@ -1,5 +1,5 @@
 // 생활 스킬 (채집 · 가공 · 제작) — 데이터와 로직 (DOM 없음)
-import { goldPerKill, RARITIES, itemName, VIP } from './data.js';
+import { goldPerKill, RARITIES, itemName, VIP, LOOT_MATS, ZONES, DROP_SLOTS, BOSS_MI } from './data.js';
 import { fmt } from './format.js';
 import { worldBonus, questEvent, rollSkillPet } from './world.js';
 
@@ -29,6 +29,12 @@ export function levelFromXp(xp) {
 
 // 상위 행동일수록 경험치 배율 증가
 export const xpScale = (lvl) => 1 + Math.pow(lvl / 40, 2);
+
+// 고기 요리 [이름, 아이콘, 요리 레벨, 회복량]
+const MEAT_DISHES = [
+  ['들짐승 바비큐', '🥓', 1, 0.18], ['늪 고기 스튜', '🥣', 9, 0.25], ['들소 버거', '🍔', 19, 0.33], ['화산 훈제 소시지', '🌭', 29, 0.41],
+  ['매머드 고기 파이', '🥧', 39, 0.5], ['정화된 고기 수프', '🍵', 51, 0.6], ['천둥새 샌드위치', '🥪', 63, 0.72], ['심연 볶음면', '🥡', 76, 0.88],
+];
 
 // ---------- 재료 / 소모품 ----------
 // value: 판매가 배율 (현재 최고 스테이지의 처치 골드 기준)
@@ -144,6 +150,12 @@ export const MATS = {
   pot_speed: { name: '신속의 물약', icon: '🧪', value: 4, buff: ['speed'], dur: 600 },
   pot_hp: { name: '거인의 물약', icon: '🧪', value: 6, buff: ['hp'], dur: 600 },
   pot_all: { name: '만능 물약', icon: '🍷', value: 20, buff: ['atk', 'gold', 'speed', 'hp'], dur: 900 },
+  pot_def: { name: '철피의 물약', icon: '🧪', value: 3, buff: ['def'], dur: 600 },
+  pot_drop: { name: '탐색의 물약', icon: '🧪', value: 5, buff: ['drop'], dur: 600 },
+  // 몬스터 고유 전리품 · 고기 · 보물 상자 (data.js)
+  ...LOOT_MATS,
+  // 고기 요리
+  ...Object.fromEntries(MEAT_DISHES.map(([name, icon, , heal], z) => ['food_meat' + z, { name, icon, value: 1 + z * 1.5, heal }])),
 };
 
 // 지역(20스테이지 단위)별 뼈
@@ -155,6 +167,8 @@ export const BUFFS = {
   gold: { name: '골드', mult: 1.5, label: '+50%' },
   speed: { name: '공격 속도', mult: 1.3, label: '+30%' },
   hp: { name: '최대 체력', mult: 2, label: '+100%' },
+  def: { name: '방어', mult: 1.5, label: '+50%' },
+  drop: { name: '드롭률', mult: 1.5, label: 'x1.5' },
 };
 
 // ---------- 도구 / 작업대 ----------
@@ -219,6 +233,11 @@ const COOK = {
   minnow: '피라미 꼬치', perch: '농어 구이', salmon: '연어 주먹밥', shrimp: '새우튀김', carp: '잉어찜', pike: '생선 만두', tropical: '생선 초밥', eel: '장어 덮밥',
   barracuda: '창꼬치 도시락', puffer: '복어 전골', seasnake: '바다뱀 탕', angler: '아귀찜', octopus: '문어 볶음', shark: '상어 스테이크', tuna: '참치 회', abyss: '심연 만찬',
 };
+const TROPHY = [
+  ['초원 수렵 장비', 5, 1], ['늪지 사냥 장비', 15, 1], ['협곡 전사 장비', 25, 2], ['화산 정복 장비', 35, 2],
+  ['빙하 원정 장비', 45, 3], ['망령 사냥 장비', 55, 3], ['폭풍 추적 장비', 65, 4], ['심연 탐험 장비', 78, 5],
+];
+const trophyIn = (z) => Object.fromEntries(ZONES[z].drops.map((id, mi) => [id, mi === BOSS_MI ? 1 : 4]));
 const xpAt = (lvl) => Math.round(7 + lvl * 1.1 + Math.pow(lvl, 1.6) / 6);
 
 export const LIFE_SKILLS = [
@@ -258,9 +277,12 @@ export const LIFE_SKILLS = [
     actions: FISH.map(([id, name, icon, lvl]) => g(id, name, icon, lvl, 2.6 + lvl / 40, xpAt(lvl), 'fish_' + id)),
   },
   {
-    id: 'cook', name: '요리', icon: '🍳', kind: '가공', desc: '물고기를 요리합니다. 음식은 전투 중 체력이 40% 아래로 떨어지면 회복량이 큰 것부터 자동으로 먹습니다. 레벨이 낮으면 태울 수 있습니다.',
+    id: 'cook', name: '요리', icon: '🍳', kind: '가공', desc: '물고기와 사냥한 고기를 요리합니다. 음식은 전투 중 체력이 40% 아래로 떨어지면 회복량이 큰 것부터 자동으로 먹습니다. 레벨이 낮으면 태울 수 있습니다.',
     burn: true,
-    actions: FISH.map(([id, , , lvl]) => ({ id, name: COOK[id], icon: '🍳', lvl, time: 2.4 + lvl / 60, xp: Math.round(xpAt(lvl) * 1.2), in: { ['fish_' + id]: 1 }, out: { ['food_' + id]: 1 } })),
+    actions: [
+      ...FISH.map(([id, , , lvl], i) => ({ id, ...(i ? {} : { group: '생선 요리' }), name: COOK[id], icon: '🍳', lvl, time: 2.4 + lvl / 60, xp: Math.round(xpAt(lvl) * 1.2), in: { ['fish_' + id]: 1 }, out: { ['food_' + id]: 1 } })),
+      ...MEAT_DISHES.map(([name, icon, lvl], z) => ({ id: 'meat' + z, ...(z ? {} : { group: '고기 요리 (사냥 전리품)' }), name, icon, lvl, time: 2.6 + lvl / 60, xp: Math.round(xpAt(lvl) * 1.3), in: { ['meat_' + z]: 1 }, out: { ['food_meat' + z]: 1 } })),
+    ],
   },
   {
     id: 'smith', name: '대장기술', icon: '🔨', kind: '가공', desc: '광석을 녹여 주괴를 만들고, 주괴로 무기·방패·투구·갑옷·각반·장화를 단조합니다. 무기는 지금 전투 방식에 맞는 종류, 단계마다 최소 등급이 보장됩니다.',
@@ -296,10 +318,14 @@ export const LIFE_SKILLS = [
       { id: 'acc6', name: '영혼 직조', icon: '👻', lvl: 55, time: 6.5, xp: 190, in: { mon_ecto: 4, mon_cloth: 4, bar_titan: 2 }, equip: { slots: CRAFT_SLOTS, r: 3 } },
       { id: 'acc7', name: '흑진주 세공', icon: '📿', lvl: 68, time: 7, xp: 280, in: { mon_pearl: 4, bar_adamant: 2, gem_ruby: 1 }, equip: { slots: CRAFT_SLOTS, r: 4 } },
       { id: 'acc8', name: '세계수 인장', icon: '💍', lvl: 82, time: 8, xp: 450, in: { log_world: 5, bar_aether: 2, gem_diamond: 1 }, equip: { slots: CRAFT_SLOTS, r: 5 } },
+      ...TROPHY.map(([name, lvl, r], z) => ({
+        id: 'trophy' + z, ...(z ? {} : { group: '전리품 공예 (특수 옵션 보장)' }), name, icon: ZONES[z].boss[0], lvl, time: 6 + z * 0.5, xp: Math.round(xpAt(lvl) * 4),
+        in: trophyIn(z), equip: { slots: DROP_SLOTS, r, sp: true },
+      })),
     ],
   },
   {
-    id: 'alch', name: '연금술', icon: '⚗️', kind: '가공', desc: '약초와 몬스터 전리품으로 물약을 만듭니다. 창고에서 마시면 일정 시간 강력한 버프를 받습니다.',
+    id: 'alch', name: '연금술', icon: '⚗️', kind: '가공', desc: '약초와 몬스터 전리품으로 물약을 만듭니다. 전리품 물약으로 방어 · 드롭률 버프도 받을 수 있습니다. 창고에서 마시면 일정 시간 강력한 버프를 받습니다.',
     actions: [
       { id: 'atk', name: '힘의 물약', icon: '🧪', lvl: 1, time: 3, xp: 15, in: { herb: 2, fish_minnow: 1 }, out: { pot_atk: 1 } },
       { id: 'atk2', name: '힘의 물약 (독버섯)', icon: '🧪', lvl: 8, time: 3, xp: 20, in: { herb: 1, mon_mushroom: 2 }, out: { pot_atk: 1 } },
@@ -311,6 +337,14 @@ export const LIFE_SKILLS = [
       { id: 'hp2', name: '거인의 물약 (뿔)', icon: '🧪', lvl: 52, time: 4.5, xp: 95, in: { herb_rare: 1, mon_horn: 3 }, out: { pot_hp: 2 } },
       { id: 'all', name: '만능 물약', icon: '🍷', lvl: 65, time: 6, xp: 180, in: { herb_rare: 2, rune_earth: 2, gem: 1 }, out: { pot_all: 1 } },
       { id: 'all2', name: '만능 물약 (심연 먹물)', icon: '🍷', lvl: 78, time: 6, xp: 240, in: { herb_rare: 2, mon_ink: 2, mon_shadow: 2 }, out: { pot_all: 2 } },
+      { id: 'def', group: '전리품 물약', name: '철피의 물약', icon: '🧪', lvl: 10, time: 3, xp: 22, in: { herb: 2, u_shell: 2 }, out: { pot_def: 1 } },
+      { id: 'drop', name: '탐색의 물약', icon: '🧪', lvl: 18, time: 3.5, xp: 32, in: { herb: 3, u_rattail: 3 }, out: { pot_drop: 1 } },
+      { id: 'atk3', name: '힘의 물약 (피주머니)', icon: '🧪', lvl: 22, time: 3, xp: 34, in: { herb: 1, u_bloodsac: 2 }, out: { pot_atk: 2 } },
+      { id: 'def2', name: '철피의 물약 (이끼 등껍질)', icon: '🧪', lvl: 33, time: 3.5, xp: 52, in: { herb: 2, u_moss: 1, u_crabshell: 1 }, out: { pot_def: 2 } },
+      { id: 'hp3', name: '거인의 물약 (곰 발바닥)', icon: '🧪', lvl: 48, time: 4.5, xp: 85, in: { herb: 2, u_paw: 2 }, out: { pot_hp: 2 } },
+      { id: 'drop2', name: '탐색의 물약 (부엉이 눈)', icon: '🧪', lvl: 58, time: 4.5, xp: 105, in: { herb_rare: 1, u_owleye: 2 }, out: { pot_drop: 2 } },
+      { id: 'speed3', name: '신속의 물약 (로열 젤리)', icon: '🧪', lvl: 63, time: 4, xp: 120, in: { herb: 1, u_jelly: 1, u_dust: 1 }, out: { pot_speed: 3 } },
+      { id: 'all3', name: '만능 물약 (화염룡의 심장)', icon: '🍷', lvl: 72, time: 6, xp: 260, in: { herb_rare: 2, u_heart: 1 }, out: { pot_all: 3 } },
     ],
   },
   {
@@ -322,10 +356,14 @@ export const LIFE_SKILLS = [
       { id: 'earth', name: '대지 룬', icon: '⛰️', lvl: 40, time: 3, xp: 26, in: { rune_ess: 2 }, out: { rune_earth: 1 } },
       { id: 'chaos', name: '혼돈 룬', icon: '🌑', lvl: 60, time: 3.5, xp: 45, in: { rune_ess: 3, herb_rare: 1 }, out: { rune_chaos: 1 } },
       { id: 'chaos2', name: '혼돈 룬 (그림자 정수)', icon: '🌑', lvl: 70, time: 3.5, xp: 55, in: { rune_ess: 2, mon_shadow: 1 }, out: { rune_chaos: 2 } },
+      { id: 'air2', group: '전리품 룬', name: '바람 룬 (독수리 깃털)', icon: '🌀', lvl: 12, time: 2.2, xp: 12, in: { rune_ess: 1, u_eaglefeather: 1 }, out: { rune_air: 4 } },
+      { id: 'fire3', name: '불 룬 (도깨비불)', icon: '🔥', lvl: 32, time: 2.6, xp: 24, in: { rune_ess: 1, u_wisp: 1 }, out: { rune_fire: 4 } },
+      { id: 'earth2', name: '대지 룬 (골렘 핵)', icon: '⛰️', lvl: 45, time: 3, xp: 36, in: { rune_ess: 1, u_core: 1 }, out: { rune_earth: 3 } },
+      { id: 'chaos3', name: '혼돈 룬 (구름 조각)', icon: '🌑', lvl: 66, time: 3.5, xp: 60, in: { rune_ess: 2, u_cloud: 1, u_breath: 1 }, out: { rune_chaos: 3 } },
     ],
   },
   {
-    id: 'divine', name: '신성술', icon: '🙏', kind: '봉헌', desc: '몬스터의 뼈(지역마다 다름)와 영혼 조각 · 룬을 바쳐 신성력을 쌓습니다. 레벨이 오르면 기도가 해금되고, 기도 하나를 켜 두면 효과를 받습니다.',
+    id: 'divine', name: '신성술', icon: '🙏', kind: '봉헌', desc: '몬스터의 뼈(지역마다 다름) · 영혼 조각 · 룬 · 망령 지역 전리품을 바쳐 신성력을 쌓습니다. 레벨이 오르면 기도가 해금되고, 기도 하나를 켜 두면 효과를 받습니다.',
     actions: [
       { id: 'bone', group: '뼈 공양', name: '뼈 공양', icon: '🦴', lvl: 1, time: 2, xp: 10, in: { bone: 1 } },
       { id: 'bone_big', name: '큰 뼈 공양', icon: '🦴', lvl: 10, time: 2.5, xp: 22, in: { bone_big: 1 } },
@@ -335,6 +373,11 @@ export const LIFE_SKILLS = [
       { id: 'ecto', group: '영혼 의식', name: '영혼 정화', icon: '👻', lvl: 35, time: 3, xp: 55, in: { mon_ecto: 1 } },
       { id: 'fire', group: '룬 의식', name: '불꽃 의식', icon: '🔥', lvl: 30, time: 3, xp: 45, in: { rune_fire: 3 } },
       { id: 'chaos', name: '혼돈 정화', icon: '🌑', lvl: 70, time: 4, xp: 140, in: { rune_chaos: 3 } },
+      { id: 'mask', group: '전리품 봉헌', name: '요괴 가면 봉인', icon: '👺', lvl: 20, time: 3, xp: 40, in: { u_mask: 1 } },
+      { id: 'skull', name: '해골 안치', icon: '💀', lvl: 40, time: 3, xp: 80, in: { u_skull: 1 } },
+      { id: 'chain', name: '망령의 사슬 정화', icon: '⛓️', lvl: 50, time: 3.5, xp: 100, in: { u_chain: 1, u_nail: 1 } },
+      { id: 'fang', name: '흡혈귀 송곳니 정화', icon: '🗡️', lvl: 60, time: 3.5, xp: 125, in: { u_fang: 1 } },
+      { id: 'crown', name: '그림자 왕관 봉헌', icon: '👑', lvl: 75, time: 5, xp: 600, in: { u_crown: 1 } },
     ],
   },
   {
@@ -578,7 +621,7 @@ function completeAction(game, skillId, act, log) {
   applyPerks(game, skillId, act, log);
   if (act.equip) {
     for (let i = 0; i < times; i++) {
-      const item = game.craftItem(act.equip.slots, act.equip.r, !log);
+      const item = game.craftItem(act.equip.slots, act.equip.r, !log, !!act.equip.sp);
       if (log) log.equips.push(item);
     }
   }
