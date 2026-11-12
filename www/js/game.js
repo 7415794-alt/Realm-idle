@@ -8,6 +8,7 @@ import {
 } from './data.js';
 import { fmt } from './format.js';
 import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, boneForStage, bankAdd } from './life.js';
+import { worldBonus, worldTick, questEvent, rollBossPet } from './world.js';
 
 const SKILL = Object.fromEntries(SKILLS.map((k) => [k.id, k]));
 export const SPEEDS = [1, 2, 4, 8, 16];
@@ -32,11 +33,16 @@ export class Game {
       toasts: [],
       invDirty: true,
       statCache: null,
+      worldT: 0,
       skill: Object.fromEntries(SKILLS.map((k) => [k.id, { cd: 0, t: 0 }])),
     };
+    worldTick(this);
     this.rt.heroHp = this.heroMaxHp();
     this.spawn();
   }
+
+  // 기도 + 펫 + 날씨 효과 합
+  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key); }
 
   // 게임 배속 (저장값이 잘못돼도 x1)
   speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
@@ -69,14 +75,14 @@ export class Game {
   stats() {
     const g = this.gearStats();
     const s = this.s;
-    const atkMult = buffMult(s, 'atk') * (1 + prayerBonus(s, 'atk'));
+    const atkMult = buffMult(s, 'atk') * (1 + this.bonus('atk'));
     return {
       atk: g.atk * atkMult,
       str: g.str * atkMult,
-      def: g.def * (1 + prayerBonus(s, 'def')),
-      hp: g.hp * buffMult(s, 'hp') * (1 + prayerBonus(s, 'hp')),
+      def: g.def * (1 + this.bonus('def')),
+      hp: g.hp * buffMult(s, 'hp') * (1 + this.bonus('hp')),
       crit: Math.min(0.75, g.crit),
-      dmg: 1 + prayerBonus(s, 'dmg'),
+      dmg: 1 + this.bonus('dmg'),
     };
   }
 
@@ -107,7 +113,7 @@ export class Game {
   }
 
   goldMult() {
-    return (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + prayerBonus(this.s, 'gold'));
+    return (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
   }
 
   // ---------- 전투 ----------
@@ -171,6 +177,7 @@ export class Game {
   tap() {
     if (this.rt.heroDead > 0) return;
     this.s.stats.taps++;
+    questEvent(this.s, 'tap', 1);
     this.heroHit(true);
   }
 
@@ -184,6 +191,9 @@ export class Game {
     const gold = goldPerKill(s.stage) * (m.boss ? bossGoldMult(s.stage) : 1) * this.goldMult();
     this.addGold(gold);
     s.stats.kills++;
+    questEvent(s, 'kill', 1);
+    if (m.boss) questEvent(s, 'boss', 1);
+    if (m.zoneBoss) { questEvent(s, 'zoneBoss', 1); rollBossPet(this); }
     this.fx({ type: 'gold', anchor: 'mon', text: '+' + fmt(gold), life: 1.1 });
 
     // 신성술 재료: 뼈
@@ -193,7 +203,7 @@ export class Game {
     // 장비: 보스는 여러 번 굴려 가장 좋은 등급
     if (m.zoneBoss) { this.dropItem(8); this.dropItem(4); }
     else if (m.boss) this.dropItem(4);
-    else if (Math.random() < DROP_CHANCE) this.dropItem(1);
+    else if (Math.random() < DROP_CHANCE * (1 + this.bonus('drop'))) this.dropItem(1);
 
     if (m.boss) {
       s.stats.bossKills++;
@@ -210,6 +220,7 @@ export class Game {
   addGold(g) {
     this.s.gold += g;
     this.s.stats.goldEarned += g;
+    questEvent(this.s, 'gold', g);
   }
 
   failBoss(msg) {
@@ -287,6 +298,7 @@ export class Game {
     const item = { id: s.nextId++, slot, r, lvl: Math.max(1, lvl), enh: 0 };
     if (slot === 'weapon') item.kind = WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
     s.stats.items++;
+    questEvent(s, 'item', 1);
     if (r > (s.stats.bestRarity || 0)) s.stats.bestRarity = r;
     return item;
   }
@@ -306,6 +318,7 @@ export class Game {
     const slot = slots[Math.floor(Math.random() * slots.length)];
     const r = Math.max(floor, rollRarity(2));
     const item = this.newItem(slot, r, this.s.maxStage);
+    questEvent(this.s, 'craft', 1);
     if (notify) this.toast(`제작 완료: [${RARITIES[r].name}] ${itemName(item)}`, r >= 6 ? 'legend' : r >= 4 ? 'epic' : 'good');
     this.giveItem(item);
     return item;
@@ -429,11 +442,12 @@ export class Game {
     const gold = kills * goldPerKill(s.stage) * this.goldMult();
     this.addGold(gold);
     s.stats.kills += Math.floor(kills);
+    questEvent(s, 'kill', Math.floor(kills));
     s.stats.playTime += t;
     // 오프라인 동안 뼈와 장비도 일부 획득
     const bones = Math.floor(kills * 0.3);
     if (bones > 0) this.addBones(bones);
-    const drops = Math.min(20, Math.floor(kills * DROP_CHANCE));
+    const drops = Math.min(20, Math.floor(kills * DROP_CHANCE * (1 + this.bonus('drop'))));
     for (let i = 0; i < drops; i++) {
       this.giveItem(this.newItem(SLOT_IDS[Math.floor(Math.random() * SLOT_IDS.length)], rollRarity(1), s.stage));
     }
@@ -447,6 +461,8 @@ export class Game {
     const s = this.s;
     const rt = this.rt;
     s.stats.playTime += dt;
+    rt.worldT -= dt;
+    if (rt.worldT <= 0) { rt.worldT = 2; worldTick(this); }
     lifeUpdate(this, dt);
 
     for (const k of SKILLS) {
@@ -468,7 +484,7 @@ export class Game {
       if (rt.heroDead <= 0) rt.heroHp = maxHp;
       return;
     }
-    rt.heroHp = Math.min(maxHp, rt.heroHp + maxHp * REGEN * dt);
+    rt.heroHp = Math.min(maxHp, rt.heroHp + maxHp * (REGEN + this.bonus('regen')) * dt);
     autoEat(this);
 
     if (rt.respawn > 0) {

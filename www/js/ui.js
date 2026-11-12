@@ -10,6 +10,11 @@ import {
   hasInputs, matValue, startAction, stopAction, usePotion, sellMat, describeLog,
   TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
+import {
+  climate, bonusText, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
+  SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
+  CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
+} from './world.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -120,6 +125,9 @@ export class UI {
     for (const u of this.updaters) u();
     if ((this.tab === 'gear' || this.tab === 'hero') && rt.invDirty) this.showTab(this.tab, true);
     if (this.tab === 'life' && this.lifeDirty) this.showTab('life', true);
+    if (this.tab === 'adv' && this.advDirty) this.showTab('adv', true);
+    this.advBtn ||= $('.tabs button[data-tab="adv"]');
+    if (this.advBtn) this.advBtn.classList.toggle('dot', questClaimable(s));
     rt.invDirty = false;
 
     while (rt.toasts.length) {
@@ -215,8 +223,10 @@ export class UI {
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
     this.dom.panel.innerHTML = '';
     this.updaters = [];
+    this.lifeDirty = false;
+    this.advDirty = false;
     const fn = {
-      hero: this.tabHero, gear: this.tabGear, life: this.tabLife, more: this.tabMore,
+      hero: this.tabHero, gear: this.tabGear, life: this.tabLife, adv: this.tabAdv, more: this.tabMore,
     }[id];
     fn.call(this, this.dom.panel);
     for (const u of this.updaters) u();
@@ -250,6 +260,13 @@ export class UI {
     this.updaters.push(() => fields.forEach(([, f], i) => setText(vals[i], f())));
     const pw = h('div', 'card note power');
     panel.appendChild(pw);
+    const wx = h('div', 'card note');
+    panel.appendChild(wx);
+    this.updaters.push(() => {
+      const c = climate();
+      const p = activePet(s);
+      setText(wx, `${c.weather.icon} ${c.weather.name} · ${c.season.icon} ${c.season.name} · ${p ? p.icon + ' ' + p.name : '펫 없음'} (자세한 효과는 🗺️ 모험 탭)`);
+    });
     this.updaters.push(() => setText(pw, `전투력 ${fmt(g.powerScore())} · 몬스터(스테이지 ${s.stage}) 체력 ${fmt(mon().maxHp || 0)} · 방어 ${fmt(mon().def)} · 힘 ${fmt(mon().str)}`));
 
     panel.appendChild(h('div', 'section-title', '🎽 장착 장비'));
@@ -616,6 +633,200 @@ export class UI {
     }
   }
 
+  // ---------- 모험 (퀘스트 · 스킬 보스 · 펫 · 날씨) ----------
+  tabAdv(panel) {
+    const g = this.game;
+    const s = g.s;
+    const c = climate();
+    const wcard = h('div', 'card weather', `
+      <div class="wx-top"><span class="wx-icon">${c.weather.icon}</span><div><b>오늘 날씨: ${c.weather.name}</b><div class="muted">${bonusText(c.weather.bonus)}</div></div></div>
+      <div class="wx-top"><span class="wx-icon">${c.season.icon}</span><div><b>이번 주 계절: ${c.season.name}</b><div class="muted">${bonusText(c.season.bonus)}</div></div></div>
+      <div class="muted wx-next"></div>`);
+    panel.appendChild(wcard);
+    const wn = $('.wx-next', wcard);
+    this.updaters.push(() => setText(wn, `날씨는 매일 0시, 계절은 매주 월요일에 바뀝니다 · 날씨 변경까지 ${fmtTime(msToNextDay() / 1000)}`));
+
+    const seg = h('div', 'buybar');
+    for (const [v, label] of [['quest', '📜 퀘스트'], ['sboss', '🐉 스킬 보스'], ['pet', '🐾 펫']]) {
+      const b = h('button', this.advView === v ? 'on' : '', label);
+      b.addEventListener('click', () => { this.advView = v; this.showTab('adv'); });
+      seg.appendChild(b);
+    }
+    panel.appendChild(seg);
+    if (this.advView === 'sboss') this.advBoss(panel);
+    else if (this.advView === 'pet') this.advPets(panel);
+    else this.advQuests(panel);
+  }
+
+  rewardToast(title, lines) {
+    if (!lines) return;
+    this.modal(title, `<div class="rewardlist">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`, [{ label: '확인', cls: 'primary' }]);
+    this.showTab('adv', true);
+  }
+
+  questRow(panel, q, onClaim) {
+    const r = makeRow(questIcon(q));
+    setText(r.name, questText(q));
+    r.btn.addEventListener('click', onClaim);
+    panel.appendChild(r.el);
+    const bar = h('div', 'lbar qbar', '<div></div>');
+    $('.rinfo', r.el).appendChild(bar);
+    const fill = $('div', bar);
+    this.updaters.push(() => {
+      const done = q.n >= q.goal;
+      setText(r.desc, `${fmt(q.n)} / ${fmt(q.goal)}`);
+      fill.style.width = Math.min(100, (q.n / q.goal) * 100).toFixed(1) + '%';
+      r.el.classList.toggle('running', done && !q.claimed);
+      r.el.classList.toggle('locked', q.claimed);
+      setText(r.bt1, q.claimed ? '✔ 완료' : done ? '🎁 받기' : '진행 중');
+      setText(r.bt2, '');
+      setDisabled(r.btn, q.claimed || !done);
+    });
+  }
+
+  advQuests(panel) {
+    const g = this.game;
+    const s = g.s;
+    const Q = s.world.quests;
+
+    // 원정 퀘스트
+    panel.appendChild(h('div', 'section-title', `🗺️ 원정 퀘스트 (${Math.min(Q.chain, CHAIN.length)} / ${CHAIN.length})`));
+    const cp = chainProgress(s);
+    if (!cp) panel.appendChild(h('div', 'card muted center', '모든 원정 퀘스트를 완료했습니다!'));
+    else {
+      const rw = cp.reward;
+      const r = makeRow('🗺️');
+      setText(r.name, `${Q.chain + 1}. ${cp.text}`);
+      setText(r.lv, `보상: ${RARITIES[rw.floor].name} 이상 장비${rw.pet ? ' · 펫 ' + PET[rw.pet].icon + PET[rw.pet].name : ''}`);
+      r.lv.style.color = RARITIES[rw.floor].color;
+      r.btn.addEventListener('click', () => this.rewardToast('🗺️ 원정 퀘스트 완료!', claimChain(g)));
+      panel.appendChild(r.el);
+      const bar = h('div', 'lbar qbar', '<div></div>');
+      $('.rinfo', r.el).appendChild(bar);
+      const fill = $('div', bar);
+      this.updaters.push(() => {
+        const p = chainProgress(s);
+        if (!p) return;
+        setText(r.desc, `${fmt(p.n)} / ${fmt(p.goal)}`);
+        fill.style.width = Math.min(100, (p.n / p.goal) * 100).toFixed(1) + '%';
+        r.el.classList.toggle('running', p.done);
+        setText(r.bt1, p.done ? '🎁 받기' : '진행 중');
+        setText(r.bt2, '');
+        setDisabled(r.btn, !p.done);
+      });
+    }
+
+    const dr = questReward(s, false);
+    const dt = h('div', 'section-title', '📅 일일 퀘스트');
+    panel.appendChild(dt);
+    panel.appendChild(h('div', 'muted qnote', `보상: 💰 ${fmt(dr.gold)} + <span style="color:${RARITIES[dr.floor].color}">${RARITIES[dr.floor].name}</span> 이상 장비`));
+    Q.daily.forEach((q, i) => this.questRow(panel, q, () => this.rewardToast('📅 일일 퀘스트 완료!', claimQuest(g, false, i))));
+    const dn = h('div', 'muted center');
+    panel.appendChild(dn);
+    this.updaters.push(() => setText(dn, `새 일일 퀘스트까지 ${fmtTime(msToNextDay() / 1000)}`));
+
+    const wr = questReward(s, true);
+    panel.appendChild(h('div', 'section-title', '🗓️ 주간 퀘스트'));
+    panel.appendChild(h('div', 'muted qnote', `보상: 💰 ${fmt(wr.gold)} + <span style="color:${RARITIES[wr.floor].color}">${RARITIES[wr.floor].name}</span> 이상 장비`));
+    Q.weekly.forEach((q, i) => this.questRow(panel, q, () => this.rewardToast('🗓️ 주간 퀘스트 완료!', claimQuest(g, true, i))));
+    const wn = h('div', 'muted center');
+    panel.appendChild(wn);
+    this.updaters.push(() => setText(wn, `새 주간 퀘스트까지 ${fmtTime(msToNextWeek() / 1000)}`));
+
+    // 날짜가 바뀌면 다시 그림
+    const sig = `${Q.day}/${Q.week}`;
+    this.updaters.push(() => { if (`${Q.day}/${Q.week}` !== sig) this.advDirty = true; });
+  }
+
+  advBoss(panel) {
+    const g = this.game;
+    const s = g.s;
+    panel.appendChild(h('div', 'card help', `<ul>
+      <li>매주 보스마다 <b>${SB.tries}번</b> 도전할 수 있습니다 (월요일 0시 초기화).</li>
+      <li>피해량은 해당 생활 스킬 레벨과 도구 성능, 채집 속도 효과로 정해집니다.</li>
+      <li>누적 피해가 단계를 넘을 때마다 상자를 엽니다: 재료 · 골드 · 등급 하한 장비 · 드물게 <b>펫</b>.</li>
+    </ul>`));
+    for (const b of SKILL_BOSSES) {
+      const card = h('div', 'card sboss', `
+        <div class="sb-top"><span class="sb-icon">${b.icon}</span><div class="sb-info"><b>${b.name}</b> <span class="tag">${LIFE[b.skill].icon} ${LIFE[b.skill].name}</span><div class="muted">${b.desc}</div></div></div>
+        <div class="lbar sb-hp"><div></div><span></span></div>
+        <div class="sb-ms"></div>
+        <div class="sb-foot"><span class="muted sb-dmg"></span><button class="btn primary sb-btn"></button></div>`);
+      panel.appendChild(card);
+      const fill = $('.sb-hp div', card);
+      const txt = $('.sb-hp span', card);
+      const ms = $('.sb-ms', card);
+      const dmg = $('.sb-dmg', card);
+      const btn = $('.sb-btn', card);
+      btn.addEventListener('click', () => {
+        const r = attackSkillBoss(g, b.id);
+        if (!r) return;
+        const body = `<p>${b.icon} ${b.name}에게 <b>${fmt(r.dmg)}</b> 피해!${r.killed ? ' <b>이번 주 처치 완료!</b>' : ''}</p>` +
+          (r.chests.length ? r.chests.map((c) => `<div class="offlife"><b>🎁 ${c.name}</b>${c.lines.map((l) => `<div>${l}</div>`).join('')}</div>`).join('') : '<p class="muted">다음 상자까지 조금 더!</p>');
+        this.modal('🐉 스킬 보스 도전', body, [{ label: '확인', cls: 'primary' }]);
+        this.showTab('adv', true);
+      });
+      this.updaters.push(() => {
+        const st = sbState(s, b.id);
+        const p = st.dmg / SB.hp;
+        fill.style.width = Math.max(0, 100 - p * 100).toFixed(2) + '%';
+        setText(txt, `체력 ${fmt(SB.hp - st.dmg)} / ${fmt(SB.hp)} · 남은 도전 ${SB.tries - st.tries}회`);
+        const html = SB.milestones.map((m, i) => `<span class="${i < st.got ? 'got' : ''}">${i < st.got ? '✔' : '🎁'} ${CHEST_NAMES[i]} ${Math.round(m * 100)}%</span>`).join('');
+        if (ms._h !== html) { ms._h = html; ms.innerHTML = html; }
+        setText(dmg, `예상 피해 약 ${fmt(sbDamage(s, b))} · 펫 ${PET[b.pet].icon}${PET[b.pet].name}${hasPet(s, b.pet) ? ' ✔' : ''}`);
+        const chk = sbCheck(s, b);
+        setText(btn, chk.ok ? '⚔️ 도전' : chk.why);
+        setDisabled(btn, !chk.ok);
+      });
+    }
+    const n = h('div', 'muted center');
+    panel.appendChild(n);
+    this.updaters.push(() => setText(n, `초기화까지 ${fmtTime(msToNextWeek() / 1000)}`));
+  }
+
+  advPets(panel) {
+    const g = this.game;
+    const s = g.s;
+    const ap = activePet(s);
+    panel.appendChild(h('div', 'card note', ap ? `데리고 다니는 펫: ${ap.icon} <b>${ap.name}</b> · ${bonusText(ap.bonus)}` : '데리고 다니는 펫이 없습니다. 펫은 1마리만 데리고 다닐 수 있습니다.'));
+    const groups = [['shop', '🛒 상점 펫'], ['boss', '👑 보스 펫 (지역 보스 처치 시 1%)'], ['skillboss', '🐉 스킬 보스 펫'], ['quest', '🗺️ 원정 펫']];
+    for (const [src, title] of groups) {
+      panel.appendChild(h('div', 'section-title', `${title} (${PETS.filter((p) => p.src === src && hasPet(s, p.id)).length} / ${PETS.filter((p) => p.src === src).length})`));
+      for (const p of PETS.filter((x) => x.src === src)) {
+        const owned = hasPet(s, p.id);
+        const r = makeRow(owned || src === 'shop' ? p.icon : '❔');
+        setText(r.name, owned || src === 'shop' ? p.name : '???');
+        setText(r.desc, bonusText(p.bonus));
+        if (src === 'skillboss') setText(r.lv, p.id === 'woodpecker' || p.id === 'hedgehog' || p.id === 'penguin' ? '전용 보스' : '모든 스킬 보스');
+        r.btn.addEventListener('click', () => {
+          if (hasPet(s, p.id)) { setPet(g, p.id); this.showTab('adv', true); }
+          else if (buyPet(g, p.id)) this.showTab('adv', true);
+        });
+        panel.appendChild(r.el);
+        this.updaters.push(() => {
+          const own = hasPet(s, p.id);
+          const on = s.world.pets.active === p.id;
+          r.el.classList.toggle('running', on);
+          r.el.classList.toggle('locked', !own && src !== 'shop');
+          if (own) {
+            setText(r.bt1, on ? '■ 넣기' : '🐾 데리고 가기');
+            setText(r.bt2, '');
+            setDisabled(r.btn, false);
+          } else if (src === 'shop') {
+            const lockd = s.maxStage < p.stage;
+            setText(r.bt1, lockd ? '🔒 잠김' : '구매');
+            setText(r.bt2, lockd ? `스테이지 ${p.stage}` : `💰 ${fmt(petCost(p))}`);
+            setDisabled(r.btn, lockd || s.gold < petCost(p));
+          } else {
+            setText(r.bt1, '미획득');
+            setText(r.bt2, PET_SRC[src]);
+            setDisabled(r.btn, true);
+          }
+        });
+      }
+    }
+  }
+
   tabMore(panel) {
     const g = this.game;
     const s = g.s;
@@ -684,6 +895,7 @@ export class UI {
         <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 9부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
         <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
         <li>막히면 이전 스테이지에서 장비를 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
+        <li><b>🗺️ 모험</b> 탭: 일일·주간·원정 퀘스트, 주간 스킬 보스, 펫(1마리 동행), 매일 바뀌는 날씨와 매주 바뀌는 계절 효과.</li>
         <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만듭니다.</li>
         <li>게임을 꺼도 최대 ${fmtTime(g.offlineCapSec())} 동안 골드·장비·뼈를 모으고 생활 스킬이 진행됩니다.</li>
       </ul>

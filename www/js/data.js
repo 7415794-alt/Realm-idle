@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
 
 // ---- 전투 / 스테이지 ----
 export const STAGE_KILLS = 10;      // 보스 등장까지 처치 수

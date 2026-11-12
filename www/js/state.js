@@ -1,5 +1,6 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
+import { newWorldState } from './world.js';
 
 const KEY = 'aether-expedition-save-v1';
 
@@ -25,6 +26,7 @@ export function newState() {
     autoSkill: false,
     settings: { autoEquip: true, autoSell: 0, speed: 1 },
     life: newLifeState(),
+    world: newWorldState(),
     stats: {
       kills: 0, bossKills: 0, goldEarned: 0, playTime: 0, deaths: 0, taps: 0, items: 0, bestRarity: 0,
     },

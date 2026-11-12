@@ -1,6 +1,7 @@
 // 생활 스킬 (채집 · 가공 · 제작) — 데이터와 로직 (DOM 없음)
 import { goldPerKill, RARITIES, itemName } from './data.js';
 import { fmt } from './format.js';
+import { worldBonus, questEvent } from './world.js';
 
 export const LIFE_MAX_LV = 99;
 const AUTO_EAT_RATIO = 0.4;       // 체력이 이 비율 아래면 음식 자동 섭취
@@ -291,6 +292,8 @@ export function activePrayer(s) {
 }
 // 기도 효과 (없으면 0)
 export function prayerBonus(s, key) { return activePrayer(s)?.effect[key] || 0; }
+// 기도 + 펫 + 날씨
+export function allBonus(s, key) { return prayerBonus(s, key) + worldBonus(s, key); }
 
 export function setPrayer(s, id) {
   const p = PRAYERS.find((x) => x.id === id);
@@ -328,13 +331,14 @@ export function upgradeTool(game, key) {
 export function speedMult(s, skillId, act) {
   let m = 1 + Math.min(0.25, 0.005 * Math.max(0, lifeLevel(s, skillId) - act.lvl));
   const k = LIFE[skillId];
-  if (k.tool) m *= toolInfo(s, k.tool).cur.speed * (1 + prayerBonus(s, 'gather'));
-  if (PRODUCTION.includes(skillId)) m *= toolInfo(s, 'workshop').cur.speed * (1 + prayerBonus(s, 'prod'));
+  if (k.tool) m *= toolInfo(s, k.tool).cur.speed * (1 + allBonus(s, 'gather'));
+  else if (k.kind === '채집') m *= 1 + allBonus(s, 'gather');
+  if (PRODUCTION.includes(skillId)) m *= toolInfo(s, 'workshop').cur.speed * (1 + allBonus(s, 'prod'));
   return m;
 }
 export function actionTime(s, skillId, act) { return act.time / speedMult(s, skillId, act); }
 
-export function actionXp(s, act) { return act.xp * xpScale(act.lvl) * (1 + prayerBonus(s, 'xp')); }
+export function actionXp(s, act) { return act.xp * xpScale(act.lvl) * (1 + allBonus(s, 'xp')); }
 
 export function burnChance(s, skillId, act) {
   if (!LIFE[skillId].burn) return 0;
@@ -445,6 +449,9 @@ function completeAction(game, skillId, act, log) {
   const s = game.s;
   if (!hasInputs(s, act)) return false;
   if (act.in) for (const [id, n] of Object.entries(act.in)) bankAdd(s, id, -n);
+  // 해당 스킬 펫: 결과물 2배 확률
+  const dup = Math.random() < worldBonus(s, 'x_' + skillId);
+  const times = dup ? 2 : 1;
 
   if (skillId === 'thief') {
     if (Math.random() >= stealChance(s, act)) {
@@ -453,7 +460,7 @@ function completeAction(game, skillId, act, log) {
       return true; // 들킴: 기절
     }
     const base = act.gold * goldPerKill(Math.max(1, s.maxStage)) * game.goldMult();
-    const gold = base * (0.5 + Math.random());
+    const gold = base * (0.5 + Math.random()) * (dup ? 2 : 1);
     game.addGold(gold);
     if (log) log.gold += gold;
   }
@@ -464,7 +471,7 @@ function completeAction(game, skillId, act, log) {
     return true;
   }
 
-  if (act.out) for (const [id, n] of Object.entries(act.out)) addMat(game, id, n, log);
+  if (act.out) for (const [id, n] of Object.entries(act.out)) addMat(game, id, n * times, log);
   if (act.extra) {
     for (const [id, p] of act.extra) {
       let q = Math.floor(p);
@@ -474,10 +481,13 @@ function completeAction(game, skillId, act, log) {
   }
   applyPerks(game, skillId, act, log);
   if (act.equip) {
-    const item = game.craftItem(act.equip.slots, act.equip.r, !log);
-    if (log) log.equips.push(item);
+    for (let i = 0; i < times; i++) {
+      const item = game.craftItem(act.equip.slots, act.equip.r, !log);
+      if (log) log.equips.push(item);
+    }
   }
-  gainXp(game, skillId, actionXp(s, act), log);
+  gainXp(game, skillId, actionXp(s, act) * (skillId === 'divine' ? times : 1), log);
+  questEvent(s, 'life', 1, skillId);
   return true;
 }
 
