@@ -101,7 +101,7 @@ export const HERO_UPGRADES = [
     val: (L) => 1.5 + 0.1 * L, show: (v) => fmtPct(v),
   },
   {
-    id: 'goldUp', icon: '🪙', name: '골드 획득', base: 300, growth: 1.15, start: 0,
+    id: 'goldUp', icon: '💰', name: '골드 획득', base: 300, growth: 1.15, start: 0,
     desc: '처치 시 골드 획득량',
     val: (L) => 1 + 0.05 * L, show: (v) => fmtPct(v),
   },

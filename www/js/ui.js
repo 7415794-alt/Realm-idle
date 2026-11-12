@@ -144,7 +144,7 @@ export class UI {
   showOffline(r) {
     this.modal('🌙 돌아오셨군요!', `
       <p>자리를 비운 <b>${fmtTime(r.sec)}</b> 동안 원정대가 계속 싸웠습니다.</p>
-      <div class="reward">🪙 <b>${fmt(r.gold)}</b> 골드</div>
+      <div class="reward">💰 <b>${fmt(r.gold)}</b> 골드</div>
       <p class="muted">처치 ${fmt(r.kills)} · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>`,
     [{ label: '받기', cls: 'primary' }]);
   }
@@ -251,7 +251,7 @@ export class UI {
         setText(r.lv, p.maxed ? `Lv ${L} (MAX)` : `Lv ${L}`);
         setText(r.desc, p.maxed ? `${def.desc} · ${def.show(def.val(L))}` : `${def.desc} · ${def.show(def.val(L))} → ${def.show(def.val(L + p.n))}`);
         setText(r.bt1, p.maxed ? 'MAX' : `+${p.n}`);
-        setText(r.bt2, p.maxed ? '' : '🪙 ' + fmt(p.cost));
+        setText(r.bt2, p.maxed ? '' : '💰 ' + fmt(p.cost));
         setDisabled(r.btn, p.maxed || p.cost > g.s.gold);
       });
     }
@@ -289,7 +289,7 @@ export class UI {
         setText(r.lv, L > 0 ? `Lv ${L}` : '미고용');
         setText(r.desc, `DPS ${fmt(def.val(L) * mult)} → ${fmt(def.val(L + p.n) * mult)}`);
         setText(r.bt1, L > 0 ? `+${p.n}` : '고용');
-        setText(r.bt2, '🪙 ' + fmt(p.cost));
+        setText(r.bt2, '💰 ' + fmt(p.cost));
         setDisabled(r.btn, p.cost > g.s.gold);
       });
     });
@@ -319,7 +319,7 @@ export class UI {
       const enh = h('button', 'btn small');
       const upd = () => {
         const c = enhanceCost(it);
-        enh.innerHTML = it.enh >= ENHANCE_MAX ? '강화 MAX' : `강화 +${it.enh + 1}<br><small>🪙 ${fmt(c)}</small>`;
+        enh.innerHTML = it.enh >= ENHANCE_MAX ? '강화 MAX' : `강화 +${it.enh + 1}<br><small>💰 ${fmt(c)}</small>`;
         setDisabled(enh, it.enh >= ENHANCE_MAX || c > g.s.gold);
       };
       enh.addEventListener('click', () => { if (g.enhance(it.id)) this.toast(`${itemName(it)} 강화 성공!`, 'good'); });
@@ -328,7 +328,7 @@ export class UI {
     } else {
       const eb = h('button', 'btn small primary', '장착');
       eb.addEventListener('click', () => g.equipItem(it.id));
-      const sb = h('button', 'btn small', `판매<br><small>🪙 ${fmt(itemSellPrice(it))}</small>`);
+      const sb = h('button', 'btn small', `판매<br><small>💰 ${fmt(itemSellPrice(it))}</small>`);
       sb.addEventListener('click', () => g.sellItem(it.id));
       btns.append(eb, sb);
     }
@@ -363,7 +363,7 @@ export class UI {
     const bulk = h('button', 'btn small', '희귀 이하 일괄 판매');
     bulk.addEventListener('click', () => {
       const r = g.sellBelow(2);
-      if (r.count) this.toast(`${r.count}개 판매: 🪙 ${fmt(r.total)}`, 'good');
+      if (r.count) this.toast(`${r.count}개 판매: 💰 ${fmt(r.total)}`, 'good');
     });
     head.appendChild(bulk);
     panel.appendChild(head);

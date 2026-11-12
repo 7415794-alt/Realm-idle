@@ -56,7 +56,7 @@ export class Renderer {
 
   text(str, x, y, size, color, stroke = 'rgba(0,0,0,.75)', weight = 800) {
     const c = this.ctx;
-    c.font = `${weight} ${size}px "Pretendard","Noto Sans KR",system-ui,sans-serif`;
+    c.font = `${weight} ${size}px "Pretendard","Noto Sans KR",system-ui,${EMOJI_FONT}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.lineWidth = Math.max(2, size / 6);
@@ -203,7 +203,7 @@ export class Renderer {
           this.text(f.text, ax + f.dx * 0.6 + 30, ay + 30 - p * 40, 12, '#a7f3d0');
           break;
         case 'gold':
-          this.text('🪙 ' + f.text, ax, ay + 40 - p * 60, 16, '#ffd84d');
+          this.text('💰 ' + f.text, ax, ay + 40 - p * 60, 16, '#ffd84d');
           break;
         case 'hurt':
           this.text(f.text, ax + f.dx * 0.4, ay + 20 - p * 30, 14, '#ff6b6b');
