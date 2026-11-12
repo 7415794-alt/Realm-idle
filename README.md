@@ -61,6 +61,14 @@ python3 -m http.server 8080 -d www
 
 설치하면 전체 화면 앱처럼 실행되고, 한 번 연 뒤에는 오프라인에서도 실행됩니다.
 
+## 안드로이드 앱 (APK)
+
+`main`에 올라갈 때마다 GitHub Actions(`.github/workflows/android.yml`)가 Capacitor로 APK를 만들어 `android-latest` 릴리스에 올립니다.
+
+- 받기: https://github.com/7415794-alt/Realm-idle/releases/download/android-latest/aether-expedition.apk (게임 기타 탭의 📱 APK 받기 버튼)
+- 서명 키(`tools/android/debug.keystore`)가 고정이라 새 버전을 덮어 설치해도 저장이 유지됩니다.
+- 뒤로가기 버튼은 바로 전 화면(탭 · 창)으로 돌아가고, 첫 화면에서 두 번 누르면 종료됩니다.
+
 ## 네이티브 앱으로 만들기 (Capacitor)
 
 웹 코드(`www/`)를 그대로 앱에 넣는 구조라 게임 코드를 바꿀 필요가 없습니다. 설정은 `capacitor.config.json`에 있습니다.

@@ -92,13 +92,69 @@ export class UI {
     });
     this.updateSpeed();
     document.querySelectorAll('.tabs button').forEach((b) => {
-      b.addEventListener('click', () => this.showTab(b.dataset.tab));
+      b.addEventListener('click', () => this.navTo(() => this.showTab(b.dataset.tab)));
     });
     this.dom.modal.addEventListener('click', (e) => {
       if (e.target === this.dom.modal) this.closeModal();
     });
     this.buildSkills();
     this.showTab('hero');
+    this.initNav();
+  }
+
+  // ---------- 뒤로가기: 앱이 꺼지지 않고 바로 전 화면으로 ----------
+  // 화면을 바꾸거나 창을 열 때마다 기록을 쌓고, 뒤로가기를 누르면 하나씩 되돌림
+  // 첫 화면에서는 '한 번 더 누르면 종료' 안내
+  initNav() {
+    this.navStack = [];
+    this.navSkip = 0;
+    history.replaceState({ ae: 'root' }, '');
+    history.pushState({ ae: 'guard' }, '');
+    window.addEventListener('popstate', () => this.onBack());
+  }
+  pushNav(undo) {
+    if (!this.navStack) return;
+    if (this.exitArmed) this.rearmGuard();
+    this.navStack.push(undo);
+    history.pushState({ ae: this.navStack.length }, '');
+  }
+  // 화면 안 버튼으로 창을 닫았을 때: 쌓아 둔 기록을 조용히 하나 지움
+  dropNav() {
+    if (!this.navStack?.length) return;
+    this.navStack.pop();
+    this.navSkip++;
+    history.back();
+  }
+  rearmGuard() {
+    clearTimeout(this.exitTimer);
+    this.exitArmed = false;
+    history.pushState({ ae: 'guard' }, '');
+  }
+  onBack() {
+    if (this.navSkip > 0) { this.navSkip--; return; }
+    const undo = this.navStack.pop();
+    if (undo) { undo(); return; }
+    // 첫 화면: 2초 안에 한 번 더 누르면 종료
+    this.exitArmed = true;
+    this.toast('뒤로 버튼을 한 번 더 누르면 종료됩니다');
+    clearTimeout(this.exitTimer);
+    this.exitTimer = setTimeout(() => { if (this.exitArmed && !this.navStack.length) this.rearmGuard(); }, 2000);
+  }
+  // 화면 상태(탭 · 하위 메뉴 · 스크롤)를 기억해 두고 바꾼 뒤, 뒤로가기로 되돌릴 수 있게 함
+  navSnap() {
+    return { tab: this.tab, gearView: this.gearView, advView: this.advView, lifeView: this.lifeView, lifeSel: this.lifeSel, dollSel: this.dollSel, scroll: this.dom.panel.scrollTop };
+  }
+  navTo(fn) {
+    const before = this.navSnap();
+    fn();
+    const after = this.navSnap();
+    const same = ['tab', 'gearView', 'advView', 'lifeView', 'lifeSel', 'dollSel'].every((k) => before[k] === after[k]);
+    if (same) return;
+    this.pushNav(() => {
+      Object.assign(this, { gearView: before.gearView, advView: before.advView, lifeView: before.lifeView, lifeSel: before.lifeSel, dollSel: before.dollSel });
+      this.showTab(before.tab, true);
+      this.dom.panel.scrollTop = before.scroll;
+    });
   }
 
   updateSpeed() {
@@ -180,12 +236,22 @@ export class UI {
       });
       wrap.appendChild(el);
     }
+    if (this.dom.modal.classList.contains('hidden')) {
+      this.modalNav = !!this.navStack;
+      this.pushNav(() => this.closeModal(true));
+    }
     this.dom.modal.classList.remove('hidden');
     return box;
   }
 
-  closeModal() {
+  // fromBack: 뒤로가기로 닫힘 (기록을 이미 지웠음)
+  closeModal(fromBack = false) {
+    if (this.dom.modal.classList.contains('hidden')) return;
     this.dom.modal.classList.add('hidden');
+    if (this.modalNav) {
+      this.modalNav = false;
+      if (!fromBack) this.dropNav();
+    }
   }
 
   showOffline(r) {
@@ -455,7 +521,7 @@ export class UI {
     const seg = h('div', 'buybar');
     for (const [v, label] of [['bag', `🎒 가방 (${s.inv.length})`], ['combine', '⚒️ 조합'], ['cube', '🎲 큐브']]) {
       const b = h('button', this.gearView === v ? 'on' : '', label);
-      b.addEventListener('click', () => { this.gearView = v; this.showTab('gear', true); });
+      b.addEventListener('click', () => this.navTo(() => { this.gearView = v; this.showTab('gear', true); }));
       seg.appendChild(b);
     }
     panel.appendChild(seg);
@@ -536,7 +602,8 @@ export class UI {
     const stopAuto = (why) => {
       if (auto) { clearInterval(auto); auto = null; if (why) this.toast(why, 'good'); }
     };
-    const close = () => { stopAuto(); ov.remove(); this.closeCube = null; this.showTab(this.tab, true); };
+    const close = (fromBack = false) => { stopAuto(); ov.remove(); this.closeCube = null; if (!fromBack) this.dropNav(); this.showTab(this.tab, true); };
+    this.pushNav(() => close(true));
     this.closeCube = close;
     ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
 
@@ -601,7 +668,7 @@ export class UI {
           <div class="muted">목표 등급과 옵션을 둘 다 고르면 둘 다 만족할 때 멈춥니다.${auto ? ` · 자동 진행 ${rolls}회` : ''}</div>
           <button class="btn ${auto ? '' : 'primary'} cwauto-btn">${auto ? '■ 멈춤' : '▶ 자동 시작'}</button>
         </details>`;
-      $('.cwx', win).addEventListener('click', close);
+      $('.cwx', win).addEventListener('click', () => close());
       $('.cwauto', win).addEventListener('toggle', (e) => { this.cubeAutoOpen = e.target.open; });
       win.querySelectorAll('.lockbtn').forEach((b) => b.addEventListener('click', () => {
         if (!g.toggleLock(it.id, Number(b.dataset.i))) this.toast(`최대 ${g.potLines(it) - 1}줄까지 잠글 수 있습니다`, 'bad');
@@ -694,7 +761,7 @@ export class UI {
         ${sd.pot ? `<span class="dpot" style="background:${POT_TIERS[sd.pot.t].color}" title="잠재 ${POT_TIERS[sd.pot.t].name}"></span>` : ''}
         <span class="dname">${it ? `<b style="color:${r.color}">${r.name}</b>` : SLOTS[sl].name}</span>`);
       if (r) c.style.setProperty('--rc', r.color);
-      c.addEventListener('click', () => { this.dollSel = this.dollSel === sl ? null : sl; this.showTab('gear', true); });
+      c.addEventListener('click', () => this.navTo(() => { this.dollSel = this.dollSel === sl ? null : sl; this.showTab('gear', true); }));
       grid.appendChild(c);
     }
     panel.appendChild(grid);
@@ -849,7 +916,7 @@ export class UI {
     const seg = h('div', 'buybar');
     for (const [v, label] of [['skills', '🛠️ 스킬'], ['bank', '📦 창고']]) {
       const b = h('button', this.lifeView === v ? 'on' : '', label);
-      b.addEventListener('click', () => { this.lifeView = v; this.showTab('life'); });
+      b.addEventListener('click', () => this.navTo(() => { this.lifeView = v; this.showTab('life'); }));
       seg.appendChild(b);
     }
     panel.appendChild(seg);
@@ -866,7 +933,7 @@ export class UI {
     const grid = h('div', 'lifegrid');
     for (const k of LIFE_SKILLS) {
       const b = h('button', 'lchip' + (k.id === this.lifeSel ? ' sel' : ''), `<span class="lc-i">${k.icon}</span><span class="lc-n">${k.name}</span><span class="lc-l"></span>`);
-      b.addEventListener('click', () => { this.lifeSel = k.id; this.showTab('life', true); });
+      b.addEventListener('click', () => this.navTo(() => { this.lifeSel = k.id; this.showTab('life', true); }));
       grid.appendChild(b);
       const lv = $('.lc-l', b);
       this.updaters.push(() => {
@@ -1195,7 +1262,7 @@ export class UI {
     const seg = h('div', 'buybar');
     for (const [v, label] of [['quest', '📜 퀘스트'], ['museum', '🏛️ 박물관'], ['sboss', '🐉 스킬 보스'], ['pet', '🐾 펫']]) {
       const b = h('button', this.advView === v ? 'on' : '', label);
-      b.addEventListener('click', () => { this.advView = v; this.showTab('adv'); });
+      b.addEventListener('click', () => this.navTo(() => { this.advView = v; this.showTab('adv'); }));
       seg.appendChild(b);
     }
     panel.appendChild(seg);
@@ -1423,6 +1490,11 @@ export class UI {
     const g = this.game;
     const s = g.s;
     const st = h('div', 'card stats');
+    // 안드로이드 앱 받기 (앱 안에서는 숨김)
+    if (!window.Capacitor) {
+      panel.appendChild(h('div', 'card note appcard', `📱 <b>안드로이드 앱</b> · <a class="btn small primary" href="https://github.com/7415794-alt/Realm-idle/releases/download/android-latest/aether-expedition.apk">APK 받기</a>
+        <div class="muted">설치할 때 '출처를 알 수 없는 앱' 허용이 필요할 수 있습니다. 앱과 웹은 저장이 따로라, 진행을 옮기려면 아래 세이브 내보내기 · 불러오기를 쓰세요.</div>`));
+    }
     this.couponCard(panel);
     panel.appendChild(h('div', 'section-title', '📊 통계'));
     panel.appendChild(st);
