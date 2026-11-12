@@ -3,7 +3,7 @@
 import {
   STAGE_KILLS, BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP,
   goldPerKill, isZoneBoss, bossGoldMult, monsterStats, maxHitVs, incomingHit,
-  HERO_BASE, CRIT_MULT, BASE_MIN_HIT, zoneOf, SKILLS, RARITIES, SLOT_IDS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, CRIT_MULT, VIP, BASE_MIN_HIT, zoneOf, SKILLS, RARITIES, SLOT_IDS, WEAPONS, WEAPON_IDS,
   ENHANCE_MAX, itemStats, itemScore, itemName, itemSellPrice, enhanceCost, rollRarity,
 } from './data.js';
 import { fmt } from './format.js';
@@ -113,7 +113,7 @@ export class Game {
   }
 
   goldMult() {
-    return (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
+    return VIP.mult * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
   }
 
   // ---------- 전투 ----------
@@ -203,7 +203,7 @@ export class Game {
     // 장비: 보스는 여러 번 굴려 가장 좋은 등급
     if (m.zoneBoss) { this.dropItem(8); this.dropItem(4); }
     else if (m.boss) this.dropItem(4);
-    else if (Math.random() < DROP_CHANCE * (1 + this.bonus('drop'))) this.dropItem(1);
+    else if (Math.random() < DROP_CHANCE * VIP.mult * (1 + this.bonus('drop'))) this.dropItem(1);
 
     if (m.boss) {
       s.stats.bossKills++;
@@ -447,7 +447,7 @@ export class Game {
     // 오프라인 동안 뼈와 장비도 일부 획득
     const bones = Math.floor(kills * 0.3);
     if (bones > 0) this.addBones(bones);
-    const drops = Math.min(20, Math.floor(kills * DROP_CHANCE * (1 + this.bonus('drop'))));
+    const drops = Math.min(20, Math.floor(kills * DROP_CHANCE * VIP.mult * (1 + this.bonus('drop'))));
     for (let i = 0; i < drops; i++) {
       this.giveItem(this.newItem(SLOT_IDS[Math.floor(Math.random() * SLOT_IDS.length)], rollRarity(1), s.stage));
     }

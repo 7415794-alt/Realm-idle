@@ -2,7 +2,9 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
+// VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
+export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
 // ---- 전투 / 스테이지 ----
 export const STAGE_KILLS = 10;      // 보스 등장까지 처치 수

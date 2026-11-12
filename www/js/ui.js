@@ -1,7 +1,7 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
   SKILLS, SLOTS, SLOT_IDS, RARITIES, WEAPONS, STAGE_KILLS, BOSS_TIME, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
-  zoneOf, itemName, itemStats, itemSellPrice, enhanceCost, goldPerKill, statText, incomingHit, defEfficiency,
+  VIP, zoneOf, itemName, itemStats, itemSellPrice, enhanceCost, goldPerKill, statText, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
@@ -851,6 +851,11 @@ export class UI {
     });
     this.updaters.push(() => rows.forEach(([, f], i) => setText(vals[i], f())));
 
+    panel.appendChild(h('div', 'section-title', '👑 VIP'));
+    panel.appendChild(h('div', 'card vipcard', `<b class="vip-text">${VIP.name}</b> <span class="tag">무료 적용 중</span>
+      <p>생활 스킬 경험치 · 장비 드롭률 · 골드 획득 <b>${VIP.label}</b></p>
+      <p class="muted">결제 없이 모든 플레이어에게 최고 등급 혜택이 적용됩니다.</p>`));
+
     panel.appendChild(h('div', 'section-title', '💾 저장'));
     const sv = h('div', 'card btngrid');
     const bSave = h('button', 'btn', '지금 저장');
@@ -895,6 +900,7 @@ export class UI {
         <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 9부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
         <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
         <li>막히면 이전 스테이지에서 장비를 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
+        <li><b>👑 VIP++</b>는 무료입니다: 생활 경험치 · 장비 드롭 · 골드 ${VIP.label}.</li>
         <li><b>🗺️ 모험</b> 탭: 일일·주간·원정 퀘스트, 주간 스킬 보스, 펫(1마리 동행), 매일 바뀌는 날씨와 매주 바뀌는 계절 효과.</li>
         <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만듭니다.</li>
         <li>게임을 꺼도 최대 ${fmtTime(g.offlineCapSec())} 동안 골드·장비·뼈를 모으고 생활 스킬이 진행됩니다.</li>

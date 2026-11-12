@@ -1,5 +1,5 @@
 // 생활 스킬 (채집 · 가공 · 제작) — 데이터와 로직 (DOM 없음)
-import { goldPerKill, RARITIES, itemName } from './data.js';
+import { goldPerKill, RARITIES, itemName, VIP } from './data.js';
 import { fmt } from './format.js';
 import { worldBonus, questEvent } from './world.js';
 
@@ -338,7 +338,7 @@ export function speedMult(s, skillId, act) {
 }
 export function actionTime(s, skillId, act) { return act.time / speedMult(s, skillId, act); }
 
-export function actionXp(s, act) { return act.xp * xpScale(act.lvl) * (1 + allBonus(s, 'xp')); }
+export function actionXp(s, act) { return act.xp * xpScale(act.lvl) * VIP.mult * (1 + allBonus(s, 'xp')); }
 
 export function burnChance(s, skillId, act) {
   if (!LIFE[skillId].burn) return 0;
