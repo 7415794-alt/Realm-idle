@@ -7,7 +7,6 @@ import { fmt } from '../www/js/format.js';
 
 export function runSim(hours = 2, log = console.log) {
   const g = new Game(newState());
-  g.s.autoSkill = true;
   const dt = 0.1;
   let lastReport = 0;
   const rows = [];

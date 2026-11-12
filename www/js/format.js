@@ -6,9 +6,11 @@ export function fmt(n) {
   if (!Number.isFinite(n)) return '∞';
   if (n < 0) return '-' + fmt(-n);
   if (n < 1000) {
-    if (n < 10 && n % 1 !== 0) return n.toFixed(1);
-    return Math.floor(n).toString();
+    // 소수점 첫째 자리까지 (정수면 그대로)
+    const r = Math.round(n * 10) / 10;
+    return r % 1 === 0 ? r.toString() : r.toFixed(1);
   }
+  if (n < 10000) return Math.floor(n).toLocaleString('ko-KR'); // 1만 미만은 단위 없이
   const e = Math.floor(Math.log10(n) / 3);
   let suf;
   if (e < SUFFIX.length) {

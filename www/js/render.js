@@ -1,5 +1,6 @@
 // 캔버스 전투 화면 렌더러
 import { zoneOf } from './data.js';
+import { fmt } from './format.js';
 
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif';
 const HERO_EMOJI = '🧙';
@@ -114,18 +115,18 @@ export class Renderer {
     c.save();
     c.translate(hx + lunge, hy);
     if (heroDead) c.rotate(-Math.PI / 2.4);
-    if (game.skillActive('frenzy') && !heroDead) {
-      c.shadowColor = '#ff5a2a';
-      c.shadowBlur = 20;
-    }
     this.emoji(HERO_EMOJI, 0, 0, 64 * scale, heroDead ? 0.45 : 1);
     c.restore();
     if (heroDead) {
       this.emoji('💫', hx, hy - 40 * scale, 22 * scale);
       this.text(`부활까지 ${rt.heroDead.toFixed(1)}초`, hx, hy - 64 * scale, 13, '#fff');
     }
-    const hpR = rt.heroHp / game.heroMaxHp();
+    const maxHp = game.heroMaxHp();
+    const hpR = rt.heroHp / maxHp;
     this.bar(hx - 34 * scale, gy + 8, 68 * scale, 7, hpR, hpR > 0.3 ? '#4ade80' : '#f87171');
+    // 체력 숫자 (정확한 값)
+    const n = (v) => (v < 1e15 ? (Math.round(Math.max(0, v) * 10) / 10).toLocaleString('ko-KR', { maximumFractionDigits: 1 }) : fmt(v));
+    this.text(`${n(rt.heroHp)} / ${n(maxHp)}`, hx, gy + 26, 11, '#fff');
 
     // 몬스터
     const m = rt.monster;
@@ -222,19 +223,6 @@ export class Renderer {
       c.stroke();
     }
     this.ripples = this.ripples.filter((r) => r.t < 0.35);
-
-    // 버프 아이콘
-    let bx = 10;
-    for (const id of ['frenzy', 'fortify', 'midas']) {
-      if (!game.skillActive(id)) continue;
-      const icon = { frenzy: '🔥', fortify: '🛡️', midas: '💰' }[id];
-      c.fillStyle = 'rgba(0,0,0,.35)';
-      roundRect(c, bx, 8, 52, 24, 12);
-      c.fill();
-      this.emoji(icon, bx + 14, 20, 15);
-      this.text(Math.ceil(rt.skill[id].t) + 's', bx + 36, 20, 12, '#fff');
-      bx += 58;
-    }
   }
 }
 

@@ -30,7 +30,7 @@ function seeded(n) {
 // gather: 채집 속도 %, prod: 가공 속도 %, xp: 생활 경험치 %, regen: 초당 체력 회복(최대 체력 비율),
 // x_<스킬>: 해당 생활 스킬 결과물 2배 확률
 export const BONUS_NAMES = {
-  atk: '모든 공격 스탯', melee: '근접(공격·힘)', rng: '원거리', mag: '마법', def: '방어', hp: '최대 체력', dmg: '모든 피해',
+  atk: '모든 공격 스탯', melee: '근접', rng: '원거리', mag: '마법', def: '방어', hp: '최대 체력', dmg: '모든 피해',
   gold: '골드', drop: '드롭률', gather: '채집 속도', prod: '가공 속도', xp: '생활 경험치',
   regen: '초당 체력 회복', ls: '흡혈', dr: '피해 감소', crit: '치명타',
 };

@@ -1,6 +1,6 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
+  STYLE_IDS, POT_TIERS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
@@ -20,6 +20,9 @@ import {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const isRingSlot = (slot) => slot === 'ring1' || slot === 'ring2';
+// 정확한 숫자 (쉼표 구분, 아주 크면 단위 표기 함께)
+const exact = (v) => (!Number.isFinite(v) ? '∞' : Math.abs(v) < 1e15 ? (Math.round(v * 10) / 10).toLocaleString('ko-KR', { maximumFractionDigits: 1 }) : fmt(v));
+const pct = (v) => (v * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
 
 // 재료 사용처 (생활 스킬 레시피 · 도구 · 박물관)
 let USES = null;
@@ -194,45 +197,119 @@ export class UI {
     [{ label: '받기', cls: 'primary' }]);
   }
 
-  // ---------- 스킬 바 ----------
+  // ---------- 전투 화면 아래: 전투 방식 선택 + 정확한 능력치 ----------
   buildSkills() {
+    const g = this.game;
     const wrap = this.dom.skills;
     wrap.innerHTML = '';
-    this.skillEls = [];
-    for (const k of SKILLS) {
-      const b = h('button', 'skill', `<span class="sicon">${k.icon}</span><span class="sname">${k.name}</span><span class="scd"></span>`);
-      b.title = k.desc;
+    wrap.className = 'statbar';
+    const row = h('div', 'stylesel');
+    this.styleBtns = STYLE_IDS.map((id) => {
+      const b = h('button', 'stybtn', `<span>${STYLES[id].icon} ${STYLES[id].name}</span><b></b>`);
       b.addEventListener('click', () => {
-        if (!this.game.skillUnlocked(k.id)) {
-          this.toast(`Lv ${k.unlock} 몬스터 처치 시 해금: ${k.desc}`);
-          return;
-        }
-        this.game.useSkill(k.id);
+        g.setStyle(id);
+        this.toast(`전투 방식: ${STYLES[id].icon} ${STYLES[id].name}`, 'good');
+        if (this.tab === 'hero' || this.tab === 'gear') this.showTab(this.tab, true);
       });
-      wrap.appendChild(b);
-      this.skillEls.push({ k, b, cd: $('.scd', b) });
-    }
-    const auto = h('button', 'skill auto', '<span class="sicon">🤖</span><span class="sname">자동</span>');
-    auto.addEventListener('click', () => {
-      this.game.s.autoSkill = !this.game.s.autoSkill;
+      row.appendChild(b);
+      return { id, b, v: $('b', b) };
     });
-    wrap.appendChild(auto);
-    this.autoBtn = auto;
+    wrap.appendChild(row);
+    this.statLine = h('div', 'statline');
+    wrap.appendChild(this.statLine);
   }
 
   updateSkills() {
     const g = this.game;
-    for (const { k, b, cd } of this.skillEls) {
-      const unlocked = g.skillUnlocked(k.id);
-      const st = g.rt.skill[k.id];
-      b.classList.toggle('locked', !unlocked);
-      b.classList.toggle('active', st.t > 0);
-      b.classList.toggle('ready', unlocked && st.cd <= 0);
-      const p = unlocked ? st.cd / k.cd : 1;
-      b.style.setProperty('--cd', (p * 360).toFixed(1) + 'deg');
-      setText(cd, !unlocked ? `🔒${k.unlock}` : st.t > 0 ? Math.ceil(st.t) + 's' : st.cd > 0 ? Math.ceil(st.cd) + 's' : '');
+    const st = g.stats();
+    const cur = g.style();
+    for (const { id, b, v } of this.styleBtns) {
+      b.classList.toggle('on', id === cur);
+      setText(v, exact(st[STYLES[id].stat]));
     }
-    this.autoBtn.classList.toggle('on', g.s.autoSkill);
+    setText(this.statLine, `❤️ ${exact(Math.max(0, g.rt.heroHp))} / ${exact(st.hp)} · 🛡️ ${exact(st.def)} · 🎯 ${pct(st.crit)} · 🧛 ${pct(st.ls)} · 🧱 ${pct(st.dr)} · DPS ${exact(g.totalDps())}`);
+  }
+
+  // 정확한 능력치 표 (영웅 탭 · 장비 탭)
+  exactStatsCard(panel) {
+    const g = this.game;
+    const cur = g.style();
+    const card = h('div', 'card stats exactstats');
+    const mark = (sid) => (cur === sid ? ' ◀' : '');
+    const fields = [
+      ['⚔️ 근접' + mark('melee'), (st) => exact(st.melee)],
+      ['🏹 원거리' + mark('ranged'), (st) => exact(st.rng)],
+      ['🔮 마법' + mark('magic'), (st) => exact(st.mag)],
+      ['🛡️ 방어', (st) => exact(st.def)],
+      ['❤️ 체력', (st) => `${exact(Math.max(0, g.rt.heroHp))} / ${exact(st.hp)}`],
+      ['🎯 치명타', (st) => pct(st.crit) + ' · x' + CRIT_MULT],
+      ['🧛 흡혈', (st) => pct(st.ls)],
+      ['🧱 피해 감소', (st) => pct(st.dr)],
+      ['💚 초당 회복', (st) => pct(0.02 + st.regen)],
+      ['💨 공격 속도', () => g.atkSpeed().toFixed(2) + '/초'],
+      ['🗡️ 피해 범위', () => `${exact(g.maxHit() * g.minHitFrac())} ~ ${exact(g.maxHit())}`],
+      ['📈 DPS', () => exact(g.totalDps())],
+      ['💥 받는 피해', () => { const m = g.rt.monster || { str: 0 }; return exact(incomingHit(m.str, g.stats().def) * (1 - g.stats().dr)) + '/회'; }],
+      ['🍀 드롭률 배율', () => 'x' + g.lootMult().toFixed(2)],
+    ];
+    const vals = fields.map(([label]) => {
+      const it = h('div', 'stat', `<span>${label}</span><b></b>`);
+      card.appendChild(it);
+      return $('b', it);
+    });
+    this.updaters.push(() => { const st = g.stats(); fields.forEach(([, f], i) => setText(vals[i], f(st))); });
+    panel.appendChild(card);
+  }
+
+  // 스탯 분석 · 추천: 지금 몬스터 기준으로 어떤 스탯을 올리면 가장 빨리 강해지는지
+  analysisCard(panel) {
+    const g = this.game;
+    const card = h('details', 'card analysis');
+    this.anaOpen ??= true;
+    card.open = this.anaOpen;
+    card.addEventListener('toggle', () => { this.anaOpen = card.open; });
+    panel.appendChild(card);
+    let last = 0;
+    const draw = () => {
+      const a = g.analyze();
+      const sty = STYLES[g.style()];
+      const best = [...a.styles].sort((x, y) => y.kpm - x.kpm)[0];
+      const n = a.now;
+      const life = n.killsPerLife === Infinity ? '체력이 줄지 않음 (안정)' : `한 번 쓰러질 때까지 약 ${exact(n.killsPerLife)}마리`;
+      const top = a.rows.filter((r) => r.gain > 0.0005).slice(0, 3);
+      const tip = a.danger
+        ? '⚠️ 지금 몬스터에게 자주 쓰러집니다. 생존 스탯(아래 순위)부터 올리거나 더 약한 몬스터를 고르세요.'
+        : '✅ 생존은 안정적입니다. 공격 스탯을 올릴수록 사냥이 빨라집니다.';
+      const open = card.open;
+      card.innerHTML = `<summary>📊 스탯 분석 · 추천 (${sty.icon} ${sty.name} 기준, ${a.m.name || '지금 몬스터'})</summary>
+        <div class="muted lnote">처치 시간 ${n.ttk.toFixed(1)}초 · 초당 받는 피해 ${exact(n.inc)} · 초당 회복 ${exact(n.heal)} · ${life} · 분당 처치 ${n.kpm.toFixed(1)}마리</div>
+        <div class="anatip">${tip}</div>
+        <div class="anahead">추천 순위 (같은 양을 올렸을 때 분당 처치 증가)</div>
+        ${a.rows.map((r, i) => `<div class="lrow${i < 3 && r.gain > 0.0005 ? ' best' : ''}"><span>${i + 1}. ${r.label}</span><b>${r.gain > 0.0005 ? '+' + (r.gain * 100).toFixed(1) + '%' : '효과 거의 없음'}</b></div>`).join('')}
+        <div class="anahead">지금 장비로 방식별 비교</div>
+        ${a.styles.map((x) => `<div class="lrow${x.id === best.id ? ' best' : ''}"><span>${STYLES[x.id].icon} ${STYLES[x.id].name}${x.id === g.style() ? ' (사용 중)' : ''}</span><b>DPS ${exact(x.dps)} · 분당 ${x.kpm.toFixed(1)}마리</b></div>`).join('')}
+        <div class="muted lnote">${best.id !== g.style() ? `💡 지금 장비로는 ${STYLES[best.id].icon} ${STYLES[best.id].name}이(가) 더 강합니다. 아래에서 바꿀 수 있습니다.` : '💡 지금 고른 방식이 가장 강합니다.'}
+        ${top.length ? ` 가장 효율 좋은 스탯: ${top.map((r) => r.label).join(', ')}.` : ''}
+        근접은 근접 수치, 원거리는 원거리 수치, 마법은 마법 수치(몬스터 방어를 일부 무시해 방어가 높은 몬스터에 유리)만 피해에 쓰입니다. 치명타는 공격 수치가 높을수록, 방어 · 체력 · 흡혈은 자주 쓰러질수록 효율이 올라갑니다.</div>`;
+      card.open = open;
+    };
+    draw();
+    this.updaters.push(() => { const now = performance.now(); if (now - last > 3000) { last = now; draw(); } });
+  }
+
+  // 전투 방식 선택 카드
+  styleCard(panel) {
+    const g = this.game;
+    const cur = g.style();
+    const card = h('div', 'card stylecard', `<div><b>전투 방식</b> <span class="muted">· 직접 선택 (장비마다 근접 · 원거리 · 마법 수치가 따로 붙어 있음)</span></div><div class="stylesel"></div><div class="muted">${STYLES[cur].desc}</div>`);
+    const row = $('.stylesel', card);
+    const st = g.stats();
+    for (const id of STYLE_IDS) {
+      const b = h('button', 'stybtn' + (id === cur ? ' on' : ''), `<span>${STYLES[id].icon} ${STYLES[id].name}</span><b>${exact(st[STYLES[id].stat])}</b>`);
+      b.addEventListener('click', () => { g.setStyle(id); this.showTab(this.tab, true); });
+      row.appendChild(b);
+    }
+    panel.appendChild(card);
   }
 
   // ---------- 탭 ----------
@@ -255,38 +332,11 @@ export class UI {
   tabHero(panel) {
     const g = this.game;
     const s = g.s;
-    const card = h('div', 'card stats');
-    const sty = STYLES[g.style()];
-    panel.appendChild(h('div', 'section-title', '⚔️ 능력치 (장비로 결정)'));
-    panel.appendChild(h('div', 'card note stylecard', `전투 방식: <b>${sty.icon} ${sty.name}</b> (무기로 결정)<br><span class="muted">${sty.desc}</span>`));
-    panel.appendChild(card);
     const mon = () => g.rt.monster || { def: 0, str: 0 };
-    const cur = g.style();
-    const mark = (k) => (cur === k ? ' ◀' : '');
-    const fields = [
-      ['⚔️ 공격' + mark('melee'), () => fmt(g.stats().atk)],
-      ['💪 힘' + mark('melee'), () => fmt(g.stats().str)],
-      ['🏹 원거리' + mark('ranged'), () => fmt(g.stats().rng)],
-      ['🔮 마법' + mark('magic'), () => fmt(g.stats().mag)],
-      ['🛡️ 방어', () => fmt(g.stats().def)],
-      ['❤️ 체력', () => `${fmt(Math.max(0, g.rt.heroHp))} / ${fmt(g.heroMaxHp())}`],
-      ['🎯 치명타', () => fmtPct(g.stats().crit, 1) + ' · x' + CRIT_MULT],
-      ['🧛 흡혈', () => fmtPct(g.stats().ls, 1)],
-      ['🧱 피해 감소', () => fmtPct(g.stats().dr, 1)],
-      ['💚 초당 회복', () => fmtPct(0.02 + g.stats().regen, 2)],
-      ['💨 공격 속도', () => g.atkSpeed().toFixed(2) + '/초'],
-      ['🗡️ 피해 범위', () => `${fmt(g.maxHit() * g.minHitFrac())}~${fmt(g.maxHit())}`],
-      ['📈 DPS', () => fmt(g.totalDps())],
-      ['💥 받는 피해', () => fmt(incomingHit(mon().str, g.stats().def) * (1 - g.stats().dr)) + '/회'],
-      ['🛡️ 방어 효율', () => fmtPct(defEfficiency(g.stats().def, mon().str), 1)],
-      ['🍀 드롭률 배율', () => 'x' + g.lootMult().toFixed(2)],
-    ];
-    const vals = fields.map(([label]) => {
-      const it = h('div', 'stat', `<span>${label}</span><b></b>`);
-      card.appendChild(it);
-      return $('b', it);
-    });
-    this.updaters.push(() => fields.forEach(([, f], i) => setText(vals[i], f())));
+    panel.appendChild(h('div', 'section-title', '⚔️ 능력치 (장비 · 잠재능력 · 기도 · 펫 · 박물관 합산)'));
+    this.styleCard(panel);
+    this.exactStatsCard(panel);
+    this.analysisCard(panel);
     const pw = h('div', 'card note power');
     panel.appendChild(pw);
     // 음식: 낚시 → 요리 → 전투 중 자동 섭취
@@ -352,7 +402,8 @@ export class UI {
     const rar = RARITIES[it.r];
     const icon = it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon;
     const ist = itemStyle(it);
-    const styTag = ist ? ` <span class="stag s-${ist}">${STYLES[ist].name}</span>` : '';
+    const styTag = ist ? ` <span class="stag s-${ist}">주력 ${STYLES[ist].name}</span>` : '';
+    const potTag = it.pot ? `<div class="potline" style="color:${POT_TIERS[it.pot.t].color}">◆ ${POT_TIERS[it.pot.t].name} · ${it.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}</div>` : '';
     const el = h('div', 'item' + (equipped ? ' equipped' : ''));
     el.style.setProperty('--rc', rar.color);
     let diff = '';
@@ -363,12 +414,11 @@ export class UI {
     const inactive = equipped && it.slot === 'shield' && g.twoHanded();
     const wd = it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'] : null;
     const extra = wd ? ` · 속도 ${wd.speed}${wd.minHit ? ' · 최소피해+' + Math.round(wd.minHit * 100) + '%' : ''}${wd.twoHand ? ' · 양손' : ''}` : '';
-    const offStyle = ist && ist !== g.style() ? ` <span class="diff down">${it.slot === 'weapon' ? '장착하면 전투 방식 변경' : '전투 방식 불일치'}</span>` : '';
     el.innerHTML = `
       <div class="iicon">${icon}</div>
       <div class="iinfo">
         <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)} <small>Lv${it.lvl}</small>${styTag}</div>
-        <div class="istat">${statText(itemStats(it))}${extra} ${diff}${offStyle}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>
+        <div class="istat">${statText(itemStats(it))}${extra} ${diff}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>${potTag}
       </div>
       <div class="ibtns"></div>`;
     const btns = $('.ibtns', el);
@@ -405,12 +455,21 @@ export class UI {
     // 가방 / 조합 창 전환
     this.gearView ||= 'bag';
     const seg = h('div', 'buybar');
-    for (const [v, label] of [['bag', `🎒 가방 (${s.inv.length})`], ['combine', '⚒️ 장비 조합']]) {
+    for (const [v, label] of [['bag', `🎒 가방 (${s.inv.length})`], ['combine', '⚒️ 조합'], ['cube', '🎲 큐브']]) {
       const b = h('button', this.gearView === v ? 'on' : '', label);
       b.addEventListener('click', () => { this.gearView = v; this.showTab('gear', true); });
       seg.appendChild(b);
     }
     panel.appendChild(seg);
+    // 정확한 능력치 (접어 둘 수 있음)
+    const sbox = h('details', 'card gearstats');
+    this.gearStatsOpen ??= false;
+    sbox.open = this.gearStatsOpen;
+    sbox.addEventListener('toggle', () => { this.gearStatsOpen = sbox.open; });
+    sbox.appendChild(h('summary', '', `📊 능력치 · ${STYLES[g.style()].icon} ${STYLES[g.style()].name}`));
+    this.exactStatsCard(sbox);
+    panel.appendChild(sbox);
+    if (this.gearView === 'cube') { this.gearCube(panel); return; }
     panel.appendChild(this.autoCombineCard());
     if (this.gearView === 'combine') { this.gearCombine(panel); return; }
     const opts = h('div', 'card opts');
@@ -442,6 +501,71 @@ export class UI {
     if (!s.inv.length) panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다'));
     const sorted = [...s.inv].sort((a, b) => g.upgradeGain(b) - g.upgradeGain(a));
     for (const it of sorted) panel.appendChild(this.itemCard(it, false));
+  }
+
+  // 큐브 창: 장착 여부와 상관없이 장비 잠재능력 다시 굴리기
+  gearCube(panel) {
+    const g = this.game;
+    const s = g.s;
+    const all = [...SLOT_IDS.map((sl) => s.equip[sl]).filter(Boolean), ...s.inv];
+    if (!all.length) { panel.appendChild(h('div', 'muted center pad', '장비가 없습니다')); return; }
+    if (!this.cubeSel || !g.findItem(this.cubeSel)) this.cubeSel = all[0].id;
+    const it = g.findItem(this.cubeSel);
+    const potHtml = (pot) => (pot ? `<div class="potbox" style="--pc:${POT_TIERS[pot.t].color}"><div class="pottier">${POT_TIERS[pot.t].name}</div>${pot.lines.map(([k, v]) => `<div>${bonusText({ [k]: v })}</div>`).join('')}</div>` : '<div class="potbox empty">잠재능력 없음 (큐브를 쓰면 개방)</div>');
+    const rar = RARITIES[it.r];
+    const top = h('div', 'card cubecard', `
+      <div class="cubehead"><span class="iicon">${it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon}</span>
+        <div><b style="color:${rar.color}">[${rar.name}] ${itemName(it)}</b> <small>Lv${it.lvl}</small>${g.findEquipped(it.id) ? ' <span class="stag">장착 중</span>' : ''}
+        <div class="muted">${statText(itemStats(it))}</div></div></div>
+      <div class="potcols"><div><div class="muted">지금 잠재능력</div>${potHtml(it.pot)}</div>${it.potNew ? `<div><div class="muted">새 결과</div>${potHtml(it.potNew)}</div>` : ''}</div>
+      <div class="cubebtns"></div>
+      <div class="muted lnote">🎲 잠재 큐브 보유 ${exact(s.life.bank.cube || 0)}개 · 없으면 💰 ${fmt(g.cubeCost(it))} · 등급 상승 확률: ${POT_TIERS.slice(0, 3).map((p, i) => `${p.name}→${POT_TIERS[i + 1].name} ${(p.up * 100).toFixed(1)}%`).join(' · ')} · 첫 줄은 지금 등급, 둘째 · 셋째 줄은 20% 확률로 지금 등급</div>`);
+    const btns = $('.cubebtns', top);
+    const roll = h('button', 'btn primary', (s.life.bank.cube || 0) > 0 ? '🎲 큐브 사용' : `🎲 골드로 돌리기 (💰 ${fmt(g.cubeCost(it))})`);
+    setDisabled(roll, !((s.life.bank.cube || 0) > 0 || s.gold >= g.cubeCost(it)));
+    roll.addEventListener('click', () => {
+      const r = g.useCube(it.id, true);
+      if (!r.ok) this.toast(r.why, 'bad');
+      this.showTab('gear', true);
+    });
+    btns.appendChild(roll);
+    if (it.potNew) {
+      const ok = h('button', 'btn', '✅ 새 결과 적용');
+      ok.addEventListener('click', () => { g.decideCube(it.id, true); this.showTab('gear', true); });
+      const keep = h('button', 'btn', '↩️ 기존 유지');
+      keep.addEventListener('click', () => { g.decideCube(it.id, false); this.showTab('gear', true); });
+      btns.append(ok, keep);
+    }
+    panel.appendChild(top);
+    panel.appendChild(h('div', 'section-title', '장비 고르기 (장착 · 가방 전부)'));
+    for (const x of all) {
+      const r = RARITIES[x.r];
+      const eq = g.findEquipped(x.id);
+      const b = h('button', 'cuberow' + (x.id === it.id ? ' on' : ''), `
+        <span class="ci">${x.slot === 'weapon' ? WICON[x.kind || 'sword'] : SLOTS[x.slot].icon}</span>
+        <span class="cn"><b style="color:${r.color}">${itemName(x)}</b>${eq ? ' <small>장착</small>' : ''}<small>${x.pot ? `<span style="color:${POT_TIERS[x.pot.t].color}">${POT_TIERS[x.pot.t].name}</span> · ${x.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}` : '잠재능력 없음'}</small></span>`);
+      b.addEventListener('click', () => { this.cubeSel = x.id; this.showTab('gear', true); });
+      panel.appendChild(b);
+    }
+  }
+
+  // 쿠폰 입력 (무제한 사용)
+  couponCard(panel) {
+    const g = this.game;
+    const card = h('div', 'card coupon', `
+      <div><b>🎟️ 쿠폰 입력</b> <span class="muted">· 같은 쿠폰을 몇 번이든 쓸 수 있습니다</span></div>
+      <div class="couponrow"><input type="text" placeholder="쿠폰 번호 입력" maxlength="30"><button class="btn primary">사용</button></div>
+      <div class="muted">사용 가능한 쿠폰: ${['에테르원정대', '큐브폭탄', '황금비', '보물사냥꾼', '물약상자'].map((c) => `<b class="ccode">${c}</b>`).join(' · ')} (영문: AETHER · CUBE · GOLD · TREASURE · POTION)</div>`);
+    const input = $('input', card);
+    const use = () => {
+      const r = g.redeemCoupon(input.value);
+      if (!r) { this.toast('없는 쿠폰입니다', 'bad'); return; }
+      this.modal(`🎟️ ${r.name}`, `<div class="rewardlist">${r.lines.map((l) => `<div>${l}</div>`).join('')}</div>`, [{ label: '확인', cls: 'primary' }]);
+    };
+    $('button', card).addEventListener('click', use);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') use(); });
+    card.querySelectorAll('.ccode').forEach((el) => el.addEventListener('click', () => { input.value = el.textContent; }));
+    panel.appendChild(card);
   }
 
   // 자동 조합 온/오프
@@ -1074,6 +1198,7 @@ export class UI {
     const g = this.game;
     const s = g.s;
     const st = h('div', 'card stats');
+    this.couponCard(panel);
     panel.appendChild(h('div', 'section-title', '📊 통계'));
     panel.appendChild(st);
     const rows = [
@@ -1141,11 +1266,11 @@ export class UI {
         <li><b>🗺️ 지도</b>에서 사냥할 몬스터를 직접 고릅니다. 지역마다 일반 몬스터 5종(Lv +1 · 3 · 5 · 7 · 9)과 지역 보스(제한시간 ${BOSS_TIME}초)가 있고, 보스를 처음 잡으면 다음 지역이 열립니다.</li>
         <li><b>자동 진행</b>을 켜면 같은 몬스터를 ${AUTO_STREAK}마리 잡을 때마다 다음 몬스터 → 보스 → 다음 지역으로 나아가고, 지면 한 단계 물러나 재정비합니다.</li>
         <li>몬스터마다 <b>고유 전리품</b>이 있습니다. 🏛️ 박물관 기증(영구 효과) · 전리품 공예(특수 옵션 장비) · 연금술 · 비전술 · 신성술에 쓰이고, 고기는 요리, 🎁 보물 상자는 창고에서 엽니다.</li>
-        <li>스킬은 처치한 몬스터 레벨에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
-        <li>전투 방식은 무기로 정해집니다: <b>근접</b>(검 · 공격+힘), <b>원거리</b>(석궁·장궁 · 원거리), <b>마법</b>(마법봉·지팡이 · 마법, 방어 관통). 장갑 · 목걸이 · 반지 · 보조장비는 성향이 맞아야 공격 스탯이 오릅니다.</li>
+        <li>전투 방식(<b>근접 · 원거리 · 마법</b>)은 전투 화면 아래에서 직접 고릅니다. 모든 장비에 근접 · 원거리 · 마법 수치가 따로 붙어 있고, 고른 방식의 수치만 피해에 쓰입니다. 영웅 탭의 📊 스탯 분석에서 어떤 방식 · 스탯이 유리한지 볼 수 있습니다.</li>
+        <li>장비 탭의 <b>🎲 큐브</b>로 장비(장착 여부 상관없음)의 잠재능력 3줄을 다시 굴립니다. 큐브는 몬스터 · 보물 상자 · 쿠폰으로 얻고, 없으면 골드로 돌립니다.</li>
         <li>몬스터마다 <b>전리품 표</b>가 있고 각 항목을 따로 굴립니다. 드롭률 효과(VIP · 펫 · 날씨)는 모든 확률에 곱해집니다.</li>
         <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 12부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
-        <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
+        <li>최대 피해 = 근접(또는 원거리) x 0.85 - 몬스터 방어 x 0.3 · 마법은 x 0.8 - 방어 x 0.22 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
         <li>막히면 약한 몬스터에서 장비와 전리품을 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
         <li><b>👑 VIP++</b>는 무료입니다: 생활 경험치 · 장비 드롭 · 골드 ${VIP.label}.</li>
         <li><b>🗺️ 모험</b> 탭: 일일·주간·원정 퀘스트, 주간 스킬 보스, 펫(1마리 동행), 매일 바뀌는 날씨와 매주 바뀌는 계절 효과.</li>

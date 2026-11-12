@@ -1,10 +1,11 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
 import { newWorldState } from './world.js';
+import { WEAPONS } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export function newState() {
   return {
@@ -24,8 +25,7 @@ export function newState() {
     },
     inv: [],
     nextId: 3,
-    autoSkill: false,
-    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true, autoCombine: false },
+    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
     life: newLifeState(),
     world: newWorldState(),
     stats: {
@@ -48,7 +48,15 @@ function migrate(obj) {
   if (!isObj(obj)) return obj;
   if ((obj.v || 1) < 2) obj = migrateV1(obj);
   if (obj.v < 3) obj = migrateV2(obj);
+  if (obj.v < 4) obj = migrateV3(obj);
   return obj;
+}
+// v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
+function migrateV3(obj) {
+  const o = { ...obj, v: 4 };
+  o.settings = { ...(o.settings || {}), style: WEAPONS[o.equip?.weapon?.kind]?.style || 'melee' };
+  delete o.autoSkill;
+  return o;
 }
 // v2(스테이지 진행) → v3(지도에서 몬스터 선택): 도달한 스테이지의 지역까지 열고, 그 위치의 몬스터를 대상으로
 function migrateV2(obj) {

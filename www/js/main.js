@@ -61,7 +61,7 @@ function init() {
     renderer.addRipple(e.clientX - r.left, e.clientY - r.top);
   });
 
-  ui = new UI(game, {
+  ui = window.ui = new UI(game, {
     onSave: save,
     onReset: () => restartWith(null),
     onImport: (st) => restartWith(st),

@@ -4,7 +4,7 @@
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
-  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, SKILLS, RARITIES, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, potSum, POT_TIERS, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
@@ -12,7 +12,19 @@ import { fmt } from './format.js';
 import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS } from './life.js';
 import { worldBonus, worldTick, questEvent, rollKillPets } from './world.js';
 
-const SKILL = Object.fromEntries(SKILLS.map((k) => [k.id, k]));
+// 쿠폰: 몇 번이든 사용 가능. gold는 '처치 골드 x 배수'(최고 레벨 기준)
+export const COUPONS = {
+  에테르원정대: { name: '에테르 원정대 지원', gold: 50000, items: 10, luck: 8, mats: { cube: 500, chest: 30, pot_all: 10, pot_drop: 10, gem: 20 } },
+  AETHER: { name: '에테르 원정대 지원', gold: 50000, items: 10, luck: 8, mats: { cube: 500, chest: 30, pot_all: 10, pot_drop: 10, gem: 20 } },
+  큐브폭탄: { name: '큐브 폭탄', mats: { cube: 1000 } },
+  CUBE: { name: '큐브 폭탄', mats: { cube: 1000 } },
+  황금비: { name: '황금비', gold: 200000 },
+  GOLD: { name: '황금비', gold: 200000 },
+  보물사냥꾼: { name: '보물 사냥꾼', items: 20, luck: 10, mats: { chest: 100, gem_ruby: 10, gem_diamond: 5, gem_emerald: 10, gem_sapphire: 10 } },
+  TREASURE: { name: '보물 사냥꾼', items: 20, luck: 10, mats: { chest: 100, gem_ruby: 10, gem_diamond: 5, gem_emerald: 10, gem_sapphire: 10 } },
+  물약상자: { name: '물약 상자', mats: { pot_atk: 30, pot_def: 30, pot_hp: 30, pot_speed: 30, pot_gold: 30, pot_drop: 30, pot_all: 20 } },
+  POTION: { name: '물약 상자', mats: { pot_atk: 30, pot_def: 30, pot_hp: 30, pot_speed: 30, pot_gold: 30, pot_drop: 30, pot_all: 20 } },
+};
 export const SPEEDS = [1, 2, 4, 8, 16];
 const REGEN = 0.02;                // 기본 초당 체력 회복 (최대 체력 대비)
 
@@ -37,7 +49,7 @@ export class Game {
       worldT: 0,
       streak: 0,   // 자동 진행: 지금 대상 연속 처치 수
       retry: 0,    // 자동 진행: 후퇴 후 다시 나아가기까지 남은 처치 수
-      skill: Object.fromEntries(SKILLS.map((k) => [k.id, { cd: 0, t: 0 }])),
+      potCache: null,
     };
     worldTick(this);
     this.rt.heroHp = this.heroMaxHp();
@@ -45,7 +57,7 @@ export class Game {
   }
 
   // 기도 + 펫 + 날씨 효과 합
-  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key); }
+  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key); }
 
   // 게임 배속 (저장값이 잘못돼도 x1)
   speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
@@ -57,7 +69,13 @@ export class Game {
   // ---------- 능력치 ----------
   weaponDef() { const w = this.s.equip.weapon; return w ? WEAPONS[w.kind || 'sword'] : null; }
   twoHanded() { return !!this.weaponDef()?.twoHand; }
-  style() { return this.weaponDef()?.style || 'melee'; }
+  // 전투 방식: 직접 선택 (근접 · 원거리 · 마법)
+  style() { return STYLES[this.s.settings.style] ? this.s.settings.style : 'melee'; }
+  setStyle(id) {
+    if (!STYLES[id]) return;
+    this.s.settings.style = id;
+    this.dirtyStats();
+  }
 
   // 장비 합산 (장비가 바뀔 때만 다시 계산)
   gearStats() {
@@ -72,19 +90,15 @@ export class Game {
     this.rt.statCache = st;
     return st;
   }
-  dirtyStats() { this.rt.statCache = null; }
-
-  skillActive(id) { return this.rt.skill[id].t > 0; }
+  dirtyStats() { this.rt.statCache = null; this.rt.potCache = null; }
 
   // 최종 능력치: 장비 + (물약 · 기도 · 펫 · 날씨)
   stats() {
     const g = this.gearStats();
     const s = this.s;
     const all = buffMult(s, 'atk') * (1 + this.bonus('atk'));
-    const melee = all * (1 + this.bonus('melee'));
     return {
-      atk: g.atk * melee,
-      str: g.str * melee,
+      melee: g.melee * all * (1 + this.bonus('melee')),
       rng: g.rng * all * (1 + this.bonus('rng')),
       mag: g.mag * all * (1 + this.bonus('mag')),
       def: g.def * buffMult(s, 'def') * (1 + this.bonus('def')),
@@ -99,7 +113,7 @@ export class Game {
 
   heroMaxHp() { return this.stats().hp; }
   atkSpeed() {
-    return (this.weaponDef()?.speed || 1) * (this.skillActive('frenzy') ? 2 : 1) * buffMult(this.s, 'speed');
+    return (this.weaponDef()?.speed || 1) * buffMult(this.s, 'speed');
   }
   minHitFrac() { return BASE_MIN_HIT + (this.weaponDef()?.minHit || 0); }
 
@@ -125,7 +139,7 @@ export class Game {
   }
 
   goldMult() {
-    return VIP.mult * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
+    return VIP.mult * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
   }
   // 전리품 확률 배율 (VIP · 펫 · 날씨 · 기도)
   lootMult() { return VIP.mult * buffMult(this.s, 'drop') * (1 + this.bonus('drop')); }
@@ -262,9 +276,7 @@ export class Game {
 
     // 최고 레벨 갱신 (스킬 해금 등)
     if (m.lvl > s.maxStage) {
-      const before = s.maxStage;
       s.maxStage = m.lvl;
-      for (const k of SKILLS) if (k.unlock > before && k.unlock <= m.lvl) this.toast(`새 스킬 해금: ${k.icon} ${k.name}`, 'epic');
     }
     if (m.boss) {
       s.stats.bossKills++;
@@ -338,30 +350,109 @@ export class Game {
     this.selectTarget(z, 4, false);
   }
 
-  // ---------- 스킬 ----------
-  skillUnlocked(id) { return this.s.maxStage >= SKILL[id].unlock; }
-  canSkill(id) {
-    const st = this.rt.skill[id];
-    if (!this.skillUnlocked(id) || st.cd > 0 || this.rt.heroDead > 0) return false;
-    if (id === 'strike') return !!this.rt.monster && !this.rt.monster.dead;
-    return true;
+  // ---------- 스탯 분석 · 추천 ----------
+  // 지금 대상 몬스터 기준으로 전투를 계산: 처치 시간 · 받는 피해 · 회복 → '분당 처치 수'(죽음 포함)
+  combatCalc(st, style, m) {
+    const wd = this.weaponDef();
+    const mh = maxHitFor(style, st, m.def) * st.dmg;
+    const dps = (mh * (1 + this.minHitFrac())) / 2 * (1 + st.crit * (CRIT_MULT - 1)) * (wd?.speed || 1) * buffMult(this.s, 'speed');
+    const ttk = m.hp / Math.max(1e-9, dps);
+    const inc = (incomingHit(m.str, st.def) * (1 - st.dr)) / m.interval;
+    const heal = st.hp * (REGEN + st.regen) + Math.min(dps, m.hp / Math.max(ttk, 0.1)) * st.ls;
+    const net = inc - heal; // 초당 체력 순손실
+    const lossPerKill = Math.max(0, net) * ttk;
+    const killsPerLife = lossPerKill > 0 ? st.hp / lossPerKill : Infinity;
+    const cycle = ttk + RESPAWN;
+    // 죽으면 부활 대기 + 처치 흐름이 끊김
+    const kpm = killsPerLife === Infinity ? 60 / cycle : (60 * killsPerLife) / (killsPerLife * cycle + HERO_REVIVE + 3);
+    return { dps, ttk, inc, heal, net, killsPerLife, kpm };
   }
-  useSkill(id) {
-    if (!this.canSkill(id)) return false;
-    const k = SKILL[id];
-    const st = this.rt.skill[id];
-    st.cd = k.cd;
-    st.t = k.dur;
-    if (id === 'strike') {
-      const dmg = this.maxHit() * 8;
-      this.rt.lunge = 0.25;
-      this.rt.shake = 0.35;
-      this.fx({ type: 'dmg', anchor: 'mon', text: '일격! ' + fmt(dmg), crit: true, big: true, life: 1.2 });
-      this.dealDamage(dmg);
+  // 스탯을 조금씩 올렸을 때 '분당 처치 수'가 얼마나 늘어나는지 비교
+  analyze(style = this.style()) {
+    const base = this.stats();
+    const info = monsterInfo(this.s.target.z, this.s.target.mi);
+    const m = this.rt.monster && !this.rt.monster.dead ? this.rt.monster : { ...monsterStats(info.lvl, info.boss ? 'zoneBoss' : 'normal') };
+    const now = this.combatCalc(base, style, m);
+    const key = STYLES[style].stat;
+    const tests = [
+      { k: key, label: `${STYLES[style].icon} ${STYLES[style].name} +10%`, f: (s) => { s[key] *= 1.1; } },
+      { k: 'crit', label: '🎯 치명타 +5%p', f: (s) => { s.crit = Math.min(STAT_CAPS.crit, s.crit + 0.05); } },
+      { k: 'def', label: '🛡️ 방어 +10%', f: (s) => { s.def *= 1.1; } },
+      { k: 'hp', label: '❤️ 체력 +10%', f: (s) => { s.hp *= 1.1; } },
+      { k: 'ls', label: '🧛 흡혈 +1%p', f: (s) => { s.ls = Math.min(STAT_CAPS.ls, s.ls + 0.01); } },
+      { k: 'dr', label: '🧱 피해 감소 +2%p', f: (s) => { s.dr = Math.min(STAT_CAPS.dr, s.dr + 0.02); } },
+      { k: 'regen', label: '💚 초당 회복 +0.5%p', f: (s) => { s.regen = Math.min(STAT_CAPS.regen, s.regen + 0.005); } },
+    ];
+    const rows = tests.map((x) => {
+      const st = { ...base };
+      x.f(st);
+      const r = this.combatCalc(st, style, m);
+      return { ...x, gain: r.kpm / Math.max(1e-9, now.kpm) - 1, dpsGain: r.dps / now.dps - 1, incCut: 1 - r.net / (now.net || 1) };
+    }).sort((a, b) => b.gain - a.gain);
+    // 방식별 지금 장비 DPS
+    const styles = STYLE_IDS.map((sid) => ({ id: sid, ...this.combatCalc(base, sid, m) }));
+    return { now, rows, styles, m, danger: now.killsPerLife < 30 };
+  }
+
+  // ---------- 큐브 (잠재능력) ----------
+  // 장착 여부와 상관없이 사용. 🎲 큐브 1개(없으면 골드)로 3줄을 다시 굴림
+  // 잠재능력이 없으면 바로 개방, 있으면 새 결과를 보여 주고 '적용' 또는 '유지'를 고름 (등급 상승은 어느 쪽이든 유지)
+  cubeCost(it) { return cubeGoldCost(it.lvl); }
+  useCube(id, payGold = false) {
+    const s = this.s;
+    const it = this.findItem(id);
+    if (!it) return { ok: false, why: '장비를 찾을 수 없습니다' };
+    if ((s.life.bank.cube || 0) > 0) bankAdd(s, 'cube', -1);
+    else if (payGold && s.gold >= this.cubeCost(it)) s.gold -= this.cubeCost(it);
+    else return { ok: false, why: '큐브가 없습니다' };
+    s.stats.cubes = (s.stats.cubes || 0) + 1;
+    const before = it.pot?.t ?? 0;
+    const res = rollPot(before);
+    if (!it.pot) {
+      it.pot = res;
+      delete it.potNew;
+      this.dirtyStats();
     } else {
-      this.fx({ type: 'text', anchor: 'hero', text: `${k.icon} ${k.name}!`, life: 1.3 });
+      it.potNew = res;
+      if (res.t > it.pot.t) { it.pot.t = res.t; this.dirtyStats(); }
     }
-    return true;
+    if (res.t > before) this.toast(`잠재능력 등급 상승! ${POT_TIERS[res.t].name}`, res.t >= 2 ? 'legend' : 'epic');
+    this.rt.invDirty = true;
+    return { ok: true, item: it, up: res.t > before };
+  }
+  // accept: true면 새 결과 적용, false면 기존 유지
+  decideCube(id, accept) {
+    const it = this.findItem(id);
+    if (!it?.potNew) return;
+    if (accept) it.pot = it.potNew;
+    delete it.potNew;
+    this.dirtyStats();
+    this.rt.invDirty = true;
+  }
+  // 장착 장비 잠재능력 합 (장비가 바뀔 때만 다시 계산)
+  potBonus(key) {
+    if (!this.rt.potCache) {
+      const items = SLOT_IDS.filter((sl) => !(sl === 'shield' && this.twoHanded())).map((sl) => this.s.equip[sl]);
+      this.rt.potCache = potSum(items);
+    }
+    return this.rt.potCache[key] || 0;
+  }
+
+  // ---------- 쿠폰 (무제한 사용) ----------
+  redeemCoupon(code) {
+    const c = COUPONS[String(code || '').trim().toUpperCase()] || COUPONS[String(code || '').trim()];
+    if (!c) return null;
+    const s = this.s;
+    const lines = [];
+    const g0 = goldPerKill(Math.max(10, s.maxStage));
+    if (c.gold) { const gold = g0 * c.gold; this.addGold(gold); lines.push(`💰 골드 +${fmt(gold)}`); }
+    for (const [id, n] of Object.entries(c.mats || {})) { bankAdd(s, id, n); lines.push(`${MATS[id].icon} ${MATS[id].name} +${fmt(n)}`); }
+    if (c.items) {
+      for (let i = 0; i < c.items; i++) this.giveItem(this.newItem(DROP_SLOTS[Math.floor(Math.random() * DROP_SLOTS.length)], rollRarity(c.luck || 6), Math.max(1, s.maxStage)));
+      lines.push(`📦 장비 ${c.items}개`);
+    }
+    s.stats.coupons = (s.stats.coupons || 0) + 1;
+    return { name: c.name, lines };
   }
 
   // ---------- 장비 ----------
@@ -370,10 +461,10 @@ export class Game {
     const s = this.s;
     const item = { id: s.nextId++, slot, r, lvl: Math.max(1, lvl), enh: 0 };
     if (slot === 'weapon') item.kind = spec.kind || WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
-    if (AFF_SLOTS.includes(slot)) {
-      // 성향: 지정값 → 아니면 60% 확률로 지금 전투 방식
-      item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
-    }
+    // 주력 방식: 무기는 종류대로, 나머지는 지정값 → 아니면 60% 확률로 지금 전투 방식
+    if (slot !== 'weapon') item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
+    // 근접 · 원거리 · 마법 비율 (장비마다 다름)
+    item.w = rollWeights(slot === 'weapon' ? WEAPONS[item.kind].style : item.aff);
     // 영웅 등급 이상(또는 전리품 공예): 특수 옵션 1개
     if (r >= 3 || spec.sp) {
       const keys = Object.keys(SPECIALS);
@@ -449,9 +540,7 @@ export class Game {
 
   // keep: 조합 결과물(자동 판매하지 않음)
   giveItem(item, keep = false) {
-    // 다른 전투 방식의 무기는 자동 장착하지 않음 (직접 바꾸기)
-    const otherStyle = item.slot === 'weapon' && this.s.equip.weapon && itemStyle(item) !== this.style();
-    if (this.s.settings.autoEquip && !otherStyle && this.upgradeGain(item) > 0) this.putOn(item);
+    if (this.s.settings.autoEquip && this.upgradeGain(item) > 0) this.putOn(item);
     else this.stash(item, keep);
     this.rt.invDirty = true;
     // 자동 조합: 가방에 같은 부위 · 등급이 3개 모이면 바로 조합
@@ -525,6 +614,7 @@ export class Game {
     return { count, total };
   }
 
+  findEquipped(id) { return SLOT_IDS.find((sl) => this.s.equip[sl]?.id === id) || null; }
   findItem(id) {
     for (const slot of SLOT_IDS) if (this.s.equip[slot]?.id === id) return this.s.equip[slot];
     return this.s.inv.find((x) => x.id === id);
@@ -550,7 +640,7 @@ export class Game {
     const groups = {};
     for (const it of this.s.inv) {
       if (it.r >= RARITIES.length - 1) continue;
-      if (auto && it.enh > 0) continue; // 자동 조합은 강화한 장비를 쓰지 않음
+      if (auto && (it.enh > 0 || it.pot)) continue; // 자동 조합은 강화 · 잠재능력 장비를 쓰지 않음
       (groups[this.combineKey(it)] ||= []).push(it);
     }
     return groups;
@@ -561,13 +651,16 @@ export class Game {
     if (!list || list.length < 3) return null;
     const sty = this.style();
     // 강화 안 한 것 · 약한 것부터 재료로 사용
-    const use = [...list].sort((a, b) => (a.enh - b.enh) || (itemScore(a, sty) - itemScore(b, sty))).slice(0, 3);
+    const use = [...list].sort((a, b) => ((a.pot ? 1 : 0) - (b.pot ? 1 : 0)) || (a.enh - b.enh) || (itemScore(a, sty) - itemScore(b, sty))).slice(0, 3);
     const best = use.reduce((a, b) => (itemScore(b, sty) > itemScore(a, sty) ? b : a));
     const ids = new Set(use.map((x) => x.id));
     s.inv = s.inv.filter((x) => !ids.has(x.id));
     const slot = isRing(best.slot) ? 'ring1' : best.slot;
     const item = this.newItem(slot, best.r + 1, Math.max(...use.map((x) => x.lvl)), { kind: best.kind, aff: best.aff, noCount: true });
     item.enh = Math.max(...use.map((x) => x.enh || 0));
+    if (best.w) item.w = best.w;
+    const withPot = use.filter((x) => x.pot).sort((a, b) => b.pot.t - a.pot.t)[0];
+    if (withPot) item.pot = withPot.pot;
     s.stats.combines = (s.stats.combines || 0) + 1;
     if (item.r > (s.stats.bestRarity || 0)) s.stats.bestRarity = item.r;
     if (item.r >= 5) this.toast(`조합 성공! [${RARITIES[item.r].name}] ${itemName(item)}`, item.r >= 7 ? 'legend' : 'epic');
@@ -653,6 +746,7 @@ export class Game {
         add(zone.drops[Math.floor(Math.random() * 5)], 1 + Math.floor(Math.random() * 5));
       }
       if (Math.random() < 0.1) add(ZONES[Math.floor(Math.random() * (zTop + 1))].drops[BOSS_MI], 1);
+      if (Math.random() < 0.5) add('cube', 1 + Math.floor(Math.random() * 3));
       if (Math.random() < 0.3) { this.dropItem(6); eq++; }
     }
     if (eq) lines.push(`📦 장비 ${eq}개`);
@@ -668,13 +762,6 @@ export class Game {
     rt.worldT -= dt;
     if (rt.worldT <= 0) { rt.worldT = 2; worldTick(this); }
     lifeUpdate(this, dt);
-
-    for (const k of SKILLS) {
-      const st = rt.skill[k.id];
-      if (st.cd > 0) st.cd = Math.max(0, st.cd - dt);
-      if (st.t > 0) st.t = Math.max(0, st.t - dt);
-    }
-    if (s.autoSkill) for (const k of SKILLS) if (this.canSkill(k.id)) this.useSkill(k.id);
 
     rt.lunge = Math.max(0, rt.lunge - dt);
     rt.shake = Math.max(0, rt.shake - dt);
@@ -717,7 +804,7 @@ export class Game {
     rt.monAtkTimer += dt;
     if (rt.monAtkTimer >= m.interval) {
       rt.monAtkTimer -= m.interval;
-      const dmg = incomingHit(m.str, st.def) * (1 - st.dr) * (this.skillActive('fortify') ? 0.5 : 1);
+      const dmg = incomingHit(m.str, st.def) * (1 - st.dr);
       rt.heroHp -= dmg;
       this.fx({ type: 'hurt', anchor: 'hero', text: '-' + fmt(dmg), life: 0.8 });
       if (rt.heroHp <= 0) this.heroDie();

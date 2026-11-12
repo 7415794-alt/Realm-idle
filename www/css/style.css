@@ -542,3 +542,37 @@ textarea.code {
 .combinecard.on { border-color: var(--good); }
 .combinecard.on b { color: var(--good); }
 .combinecard .btn { white-space: nowrap; }
+
+/* ---- 전투 방식 선택 · 정확한 능력치 · 분석 · 큐브 · 쿠폰 ---- */
+.statbar { display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; }
+.stylesel { display: flex; gap: 6px; }
+.stybtn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.stybtn b { font-size: 13px; }
+.stybtn.on { border-color: var(--accent2); background: #3b2a74; box-shadow: 0 0 10px rgba(139, 92, 246, .45); }
+.statline { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.4; }
+.stylecard .stylesel { margin: 8px 0 6px; }
+.gearstats summary, .analysis summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+.gearstats .exactstats { margin: 8px 0 0; padding: 0; border: 0; background: none; }
+.analysis .lrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.analysis .lrow.best b { color: var(--good); }
+.analysis .lrow.best span { font-weight: 700; }
+.anahead { font-weight: 700; font-size: 12px; margin-top: 10px; color: var(--accent2); }
+.anatip { font-size: 12px; margin-top: 6px; }
+.potline { font-size: 11.5px; margin-top: 2px; }
+.cubehead { display: flex; gap: 10px; align-items: center; }
+.cubehead .iicon { font-size: 28px; }
+.potcols { display: flex; gap: 8px; margin-top: 10px; }
+.potcols > div { flex: 1; min-width: 0; }
+.potbox { border: 1px solid var(--pc, var(--line)); border-radius: 8px; padding: 6px 8px; font-size: 12px; margin-top: 3px; line-height: 1.5; }
+.potbox.empty { color: var(--muted); }
+.pottier { font-weight: 800; color: var(--pc); }
+.cubebtns { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.cubebtns .btn { flex: 1; }
+.cuberow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 8px; color: inherit; padding: 6px 8px; margin-top: 5px; font: inherit; cursor: pointer; }
+.cuberow.on { border-color: var(--accent2); }
+.cuberow .ci { font-size: 22px; }
+.cuberow .cn { display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
+.cuberow .cn small { font-size: 11px; opacity: .8; }
+.coupon .couponrow { display: flex; gap: 6px; margin: 8px 0 6px; }
+.coupon input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, .3); color: inherit; font: inherit; }
+.coupon .ccode { cursor: pointer; color: var(--accent2); }
