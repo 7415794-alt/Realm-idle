@@ -100,11 +100,11 @@ export const BUFFS = {
 // 채집 도구: 골드 + 주괴로 업그레이드, 채집 속도 배율
 const TOOL_TIERS = [
   { pre: '낡은', speed: 1, lvl: 1, gold: 0, mats: {} },
-  { pre: '구리', speed: 1.5, lvl: 10, gold: 500, mats: { bar_bronze: 5 } },
-  { pre: '철', speed: 2.2, lvl: 25, gold: 2e4, mats: { bar_iron: 10 } },
-  { pre: '미스릴', speed: 3.2, lvl: 40, gold: 1e6, mats: { bar_mithril: 15 } },
-  { pre: '아다만', speed: 4.5, lvl: 55, gold: 5e7, mats: { bar_adamant: 20 } },
-  { pre: '에테르', speed: 6.5, lvl: 70, gold: 3e9, mats: { bar_adamant: 40, rune_chaos: 10 } },
+  { pre: '구리', speed: 1.5, lvl: 10, gold: 300, mats: { bar_bronze: 5 } },
+  { pre: '철', speed: 2.2, lvl: 25, gold: 5e3, mats: { bar_iron: 10 } },
+  { pre: '미스릴', speed: 3.2, lvl: 40, gold: 1e5, mats: { bar_mithril: 15 } },
+  { pre: '아다만', speed: 4.5, lvl: 55, gold: 3e6, mats: { bar_adamant: 20 } },
+  { pre: '에테르', speed: 6.5, lvl: 70, gold: 1e8, mats: { bar_adamant: 40, rune_chaos: 10 } },
 ];
 export const TOOLS = {
   wood: { name: '도끼', icon: '🪓', tiers: TOOL_TIERS },
@@ -115,11 +115,11 @@ export const TOOLS = {
     name: '작업대', icon: '🛠️',
     tiers: [
       { pre: '허름한', speed: 1, gold: 0, mats: {} },
-      { pre: '튼튼한', speed: 1.3, gold: 1e3, mats: { log_oak: 50 } },
-      { pre: '장인의', speed: 1.7, gold: 5e4, mats: { log_pine: 50, bar_bronze: 10 } },
-      { pre: '명장의', speed: 2.2, gold: 2e6, mats: { log_maple: 50, bar_iron: 20 } },
-      { pre: '대가의', speed: 2.8, gold: 1e8, mats: { log_yew: 50, bar_mithril: 20 } },
-      { pre: '전설의', speed: 3.5, gold: 5e9, mats: { log_world: 50, bar_adamant: 20 } },
+      { pre: '튼튼한', speed: 1.3, gold: 500, mats: { log_oak: 50 } },
+      { pre: '장인의', speed: 1.7, gold: 1e4, mats: { log_pine: 50, bar_bronze: 10 } },
+      { pre: '명장의', speed: 2.2, gold: 2e5, mats: { log_maple: 50, bar_iron: 20 } },
+      { pre: '대가의', speed: 2.8, gold: 5e6, mats: { log_yew: 50, bar_mithril: 20 } },
+      { pre: '전설의', speed: 3.5, gold: 2e8, mats: { log_world: 50, bar_adamant: 20 } },
     ],
   },
 };
@@ -129,14 +129,14 @@ export const PRODUCTION = ['cook', 'smith', 'craft', 'alch', 'arcane'];
 // 신성술 레벨로 해금, 1개만 활성화. effect 값은 비율(+0.1 = +10%)
 export const PRAYERS = [
   { id: 'guard', name: '수호의 기도', icon: '🛡️', lvl: 1, effect: { hp: 0.1 }, desc: '최대 체력 +10%' },
-  { id: 'war', name: '전사의 기도', icon: '⚔️', lvl: 8, effect: { atk: 0.1 }, desc: '영웅 공격력 +10%' },
-  { id: 'ally', name: '동료의 기도', icon: '👥', lvl: 15, effect: { comp: 0.1 }, desc: '동료 DPS +10%' },
+  { id: 'war', name: '전사의 기도', icon: '⚔️', lvl: 8, effect: { atk: 0.1 }, desc: '공격·힘 +10%' },
+  { id: 'iron', name: '철갑의 기도', icon: '🔰', lvl: 15, effect: { def: 0.15 }, desc: '방어 +15%' },
   { id: 'nimble', name: '날랜 손의 기도', icon: '🗝️', lvl: 22, effect: { thief: 0.1 }, desc: '도둑질 성공률 +10%p' },
   { id: 'nature', name: '대지의 기도', icon: '🌳', lvl: 30, effect: { gather: 0.25 }, desc: '채집 속도 +25%' },
   { id: 'craft', name: '장인의 기도', icon: '🛠️', lvl: 38, effect: { prod: 0.25 }, desc: '가공 속도 +25%' },
   { id: 'gold', name: '황금의 기도', icon: '💰', lvl: 45, effect: { gold: 0.3 }, desc: '골드 획득 +30%' },
   { id: 'wisdom', name: '지혜의 기도', icon: '📖', lvl: 55, effect: { xp: 0.2 }, desc: '생활 경험치 +20%' },
-  { id: 'fury', name: '분노의 기도', icon: '🔥', lvl: 65, effect: { atk: 0.35, comp: 0.35 }, desc: '영웅 공격력·동료 DPS +35%' },
+  { id: 'fury', name: '분노의 기도', icon: '🔥', lvl: 65, effect: { atk: 0.3, def: 0.2 }, desc: '공격·힘 +30%, 방어 +20%' },
   { id: 'grace', name: '신의 은총', icon: '🌟', lvl: 80, effect: { dmg: 0.5, gold: 0.3, xp: 0.2 }, desc: '모든 피해 +50%, 골드 +30%, 생활 경험치 +20%' },
 ];
 
@@ -187,27 +187,27 @@ export const LIFE_SKILLS = [
     ],
   },
   {
-    id: 'smith', name: '대장기술', icon: '🔨', kind: '가공', desc: '광석을 녹여 주괴를 만들고, 주괴로 무기와 방어구를 단조합니다. 주괴는 도구 업그레이드에도 쓰입니다.',
+    id: 'smith', name: '대장기술', icon: '🔨', kind: '가공', desc: '광석을 녹여 주괴를 만들고, 주괴로 무기·방패·투구·갑옷·각반·장화를 단조합니다. 단계마다 최소 등급이 보장됩니다. 주괴는 도구 업그레이드에도 쓰입니다.',
     actions: [
       { id: 'bronze', group: '주괴 제련', name: '청동 주괴', icon: '🧱', lvl: 1, time: 2.5, xp: 8, in: { ore_copper: 2 }, out: { bar_bronze: 1 } },
       { id: 'iron', name: '철 주괴', icon: '🧱', lvl: 15, time: 3, xp: 18, in: { ore_iron: 1, coal: 1 }, out: { bar_iron: 1 } },
       { id: 'mithril', name: '미스릴 주괴', icon: '🧱', lvl: 35, time: 3.5, xp: 35, in: { ore_mithril: 1, coal: 2 }, out: { bar_mithril: 1 } },
       { id: 'adamant', name: '아다만 주괴', icon: '🧱', lvl: 55, time: 4, xp: 60, in: { ore_adamant: 1, coal: 3 }, out: { bar_adamant: 1 } },
-      { id: 'gear0', group: '장비 단조', name: '청동 장비 단조', icon: '🗡️', lvl: 8, time: 5, xp: 35, in: { bar_bronze: 3 }, equip: { slots: ['weapon', 'armor'], r: 0 } },
-      { id: 'gear1', name: '철 장비 단조', icon: '🗡️', lvl: 22, time: 5, xp: 70, in: { bar_iron: 3 }, equip: { slots: ['weapon', 'armor'], r: 1 } },
-      { id: 'gear2', name: '미스릴 장비 단조', icon: '🗡️', lvl: 42, time: 6, xp: 130, in: { bar_mithril: 3 }, equip: { slots: ['weapon', 'armor'], r: 2 } },
-      { id: 'gear3', name: '아다만 장비 단조', icon: '🗡️', lvl: 62, time: 6, xp: 220, in: { bar_adamant: 3 }, equip: { slots: ['weapon', 'armor'], r: 3 } },
-      { id: 'gear4', name: '에테르 장비 단조', icon: '⚔️', lvl: 80, time: 8, xp: 450, in: { bar_adamant: 5, rune_chaos: 5 }, equip: { slots: ['weapon', 'armor'], r: 4 } },
+      { id: 'gear0', group: '장비 단조', name: '청동 장비 단조', icon: '🗡️', lvl: 8, time: 5, xp: 35, in: { bar_bronze: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 0 } },
+      { id: 'gear1', name: '철 장비 단조', icon: '🗡️', lvl: 22, time: 5, xp: 70, in: { bar_iron: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 1 } },
+      { id: 'gear2', name: '미스릴 장비 단조', icon: '🗡️', lvl: 42, time: 6, xp: 130, in: { bar_mithril: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 2 } },
+      { id: 'gear3', name: '아다만 장비 단조', icon: '🗡️', lvl: 62, time: 6, xp: 220, in: { bar_adamant: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 3 } },
+      { id: 'gear4', name: '에테르 장비 단조', icon: '⚔️', lvl: 80, time: 8, xp: 450, in: { bar_adamant: 5, rune_chaos: 5 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 5 } },
     ],
   },
   {
-    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목과 주괴, 보석으로 장신구를 만듭니다.',
+    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목과 주괴, 보석으로 장갑·목걸이·망토를 만듭니다. 단계마다 최소 등급이 보장됩니다.',
     actions: [
-      { id: 'acc0', name: '나무 부적', icon: '📿', lvl: 1, time: 4, xp: 20, in: { log_oak: 5 }, equip: { slots: ['accessory'], r: 0 } },
-      { id: 'acc1', name: '소나무 반지', icon: '💍', lvl: 15, time: 5, xp: 50, in: { log_pine: 5, bar_bronze: 2 }, equip: { slots: ['accessory'], r: 1 } },
-      { id: 'acc2', name: '단풍 목걸이', icon: '📿', lvl: 35, time: 6, xp: 110, in: { log_maple: 5, bar_iron: 2 }, equip: { slots: ['accessory'], r: 2 } },
-      { id: 'acc3', name: '주목 보주', icon: '🔮', lvl: 55, time: 7, xp: 200, in: { log_yew: 5, bar_mithril: 2, gem: 1 }, equip: { slots: ['accessory'], r: 3 } },
-      { id: 'acc4', name: '세계수 인장', icon: '💍', lvl: 75, time: 8, xp: 400, in: { log_world: 5, bar_adamant: 2, gem: 2 }, equip: { slots: ['accessory'], r: 4 } },
+      { id: 'acc0', name: '나무 부적', icon: '📿', lvl: 1, time: 4, xp: 20, in: { log_oak: 5 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 0 } },
+      { id: 'acc1', name: '소나무 반지', icon: '💍', lvl: 15, time: 5, xp: 50, in: { log_pine: 5, bar_bronze: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 1 } },
+      { id: 'acc2', name: '단풍 목걸이', icon: '📿', lvl: 35, time: 6, xp: 110, in: { log_maple: 5, bar_iron: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 2 } },
+      { id: 'acc3', name: '주목 보주', icon: '🔮', lvl: 55, time: 7, xp: 200, in: { log_yew: 5, bar_mithril: 2, gem: 1 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 3 } },
+      { id: 'acc4', name: '세계수 인장', icon: '💍', lvl: 75, time: 8, xp: 400, in: { log_world: 5, bar_adamant: 2, gem: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 5 } },
     ],
   },
   {
@@ -474,8 +474,7 @@ function completeAction(game, skillId, act, log) {
   }
   applyPerks(game, skillId, act, log);
   if (act.equip) {
-    const slot = act.equip.slots[Math.floor(Math.random() * act.equip.slots.length)];
-    const item = game.craftItem(slot, act.equip.r, !log);
+    const item = game.craftItem(act.equip.slots, act.equip.r, !log);
     if (log) log.equips.push(item);
   }
   gainXp(game, skillId, actionXp(s, act), log);

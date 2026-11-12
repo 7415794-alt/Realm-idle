@@ -3,31 +3,60 @@ import { newLifeState } from './life.js';
 
 const KEY = 'aether-expedition-save-v1';
 
+export const SAVE_VERSION = 2;
+
 export function newState() {
   return {
-    v: 1,
+    v: SAVE_VERSION,
     gold: 0,
-    essence: 0,
     stage: 1,
     maxStage: 1,
-    runMaxStage: 1,
     kills: 0,
     autoAdvance: true,
-    hero: { atk: 1, hp: 1, speed: 0, crit: 0, critDmg: 0, goldUp: 0 },
-    comps: {},
-    relics: {},
-    equip: { weapon: null, armor: null, accessory: null },
+    // 시작 장비: 청동 한손검 · 청동 갑옷
+    equip: {
+      weapon: { id: 1, slot: 'weapon', kind: 'sword', r: 0, lvl: 1, enh: 0 },
+      shield: null, helm: null,
+      body: { id: 2, slot: 'body', r: 0, lvl: 1, enh: 0 },
+      legs: null, gloves: null, boots: null, amulet: null, cape: null,
+    },
     inv: [],
-    nextId: 1,
+    nextId: 3,
     autoSkill: false,
-    settings: { autoEquip: true, autoSell: 0, buyMult: 1, speed: 1 },
+    settings: { autoEquip: true, autoSell: 0, speed: 1 },
     life: newLifeState(),
     stats: {
-      kills: 0, bossKills: 0, goldEarned: 0, prestiges: 0, playTime: 0,
-      essenceEarned: 0, taps: 0, items: 0,
+      kills: 0, bossKills: 0, goldEarned: 0, playTime: 0, deaths: 0, taps: 0, items: 0, bestRarity: 0,
     },
     lastSeen: Date.now(),
   };
+}
+
+// v1(골드 강화 · 동료 · 환생) → v2(장비 중심) 변환
+const OLD_SLOT = { weapon: 'weapon', armor: 'body', accessory: 'amulet' };
+function convertItem(it) {
+  if (!isObj(it)) return null;
+  const slot = OLD_SLOT[it.slot] || it.slot;
+  const out = { id: it.id, slot, r: Math.min(4, it.r || 0), lvl: it.lvl || 1, enh: it.enh || 0 };
+  if (slot === 'weapon') out.kind = it.kind || 'sword';
+  return out;
+}
+function migrate(obj) {
+  if (!isObj(obj) || (obj.v || 1) >= SAVE_VERSION) return obj;
+  const o = { ...obj, v: SAVE_VERSION };
+  const eq = {};
+  for (const [k, it] of Object.entries(obj.equip || {})) {
+    const c = convertItem(it);
+    if (c) eq[c.slot] = c;
+  }
+  o.equip = eq;
+  o.inv = (obj.inv || []).map(convertItem).filter(Boolean);
+  // 전투 체계가 바뀌어 스테이지 1부터 다시 시작 (최고 스테이지 · 장비 · 생활 스킬 유지)
+  o.stage = 1;
+  o.kills = 0;
+  o.autoAdvance = true;
+  for (const k of ['hero', 'comps', 'relics', 'essence', 'runMaxStage']) delete o[k];
+  return o;
 }
 
 function isObj(x) {
@@ -47,7 +76,17 @@ function merge(def, src) {
 }
 
 export function hydrate(obj) {
-  return merge(newState(), obj);
+  const st = merge(newState(), migrate(obj));
+  delete st.hero; delete st.comps; delete st.relics; delete st.essence;
+  // 장비 id 중복 정리 (시작 장비와 옛 장비가 겹치는 경우)
+  const seen = new Set();
+  const all = [...Object.values(st.equip).filter(Boolean), ...st.inv];
+  st.nextId = Math.max(st.nextId, ...all.map((it) => (it.id || 0) + 1));
+  for (const it of all) {
+    if (!it.id || seen.has(it.id)) it.id = st.nextId++;
+    seen.add(it.id);
+  }
+  return st;
 }
 
 export function loadState() {

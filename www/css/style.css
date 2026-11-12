@@ -459,3 +459,10 @@ textarea.code {
 .tc-speed { color: var(--good); font-size: 13px; }
 .tc-next { line-height: 1.5; word-break: keep-all; }
 .tc-btn { align-self: flex-end; }
+
+/* ---------- 장비 v2 ---------- */
+.rtag { font-weight: 800; }
+.iname small { color: var(--muted); font-weight: 600; }
+.power { margin-top: 6px; font-size: 12px; }
+.rartable summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.rgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 8px; margin-top: 8px; font-size: 12px; font-weight: 700; }

@@ -1,5 +1,5 @@
 // 캔버스 전투 화면 렌더러
-import { zoneOf, COMPANIONS } from './data.js';
+import { zoneOf } from './data.js';
 
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif';
 const HERO_EMOJI = '🧙';
@@ -106,18 +106,6 @@ export class Renderer {
 
     const hx = w * 0.27;
     const mx = w * 0.72;
-
-    // 동료
-    let idx = 0;
-    for (const comp of COMPANIONS) {
-      if (!(s.comps[comp.id] > 0)) continue;
-      const col = Math.floor(idx / 2);
-      const row = idx % 2;
-      const cx = hx - 46 * scale - col * 26 * scale + row * 10;
-      const cy = gy - 14 * scale - row * 30 * scale + Math.sin(this.t * 3 + idx) * 3;
-      if (cx > 6) this.emoji(comp.icon, cx, cy, 22 * scale);
-      idx++;
-    }
 
     // 영웅
     const heroDead = rt.heroDead > 0;
@@ -237,9 +225,9 @@ export class Renderer {
 
     // 버프 아이콘
     let bx = 10;
-    for (const id of ['frenzy', 'rally', 'midas']) {
+    for (const id of ['frenzy', 'fortify', 'midas']) {
       if (!game.skillActive(id)) continue;
-      const icon = { frenzy: '🔥', rally: '📯', midas: '💰' }[id];
+      const icon = { frenzy: '🔥', fortify: '🛡️', midas: '💰' }[id];
       c.fillStyle = 'rgba(0,0,0,.35)';
       roundRect(c, bx, 8, 52, 24, 12);
       c.fill();

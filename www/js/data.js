@@ -1,24 +1,47 @@
 // 게임 밸런스 / 콘텐츠 데이터
-import { fmt, fmtPct } from './format.js';
+import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '1.3.0';
+export const VERSION = '2.0.0';
 
 // ---- 전투 / 스테이지 ----
 export const STAGE_KILLS = 10;      // 보스 등장까지 처치 수
 export const BOSS_TIME = 30;        // 보스 제한 시간(초)
 export const RESPAWN = 0.35;        // 몬스터 재등장 시간
-export const HERO_REVIVE = 3;       // 영웅 부활 시간
-export const INV_MAX = 40;          // 가방 칸 수
-export const PRESTIGE_MIN = 40;     // 환생 가능 최소 스테이지
+export const HERO_REVIVE = 4;       // 영웅 부활 시간
+export const INV_MAX = 60;          // 가방 칸 수
+export const OFFLINE_CAP = 6 * 3600; // 오프라인 최대 시간(초)
 
-export const monsterHp = (s) => 8 * Math.pow(1.19, s - 1);
-export const monsterDmg = (s) => 1.2 * Math.pow(1.14, s - 1);
+// 성장 곡선: 몬스터가 장비보다 조금 더 빨리 강해짐 → 높은 등급 · 강화 · 제작이 필요
+export const power = (lvl) => Math.pow(1.12, Math.max(1, lvl) - 1);
+export const MON_GROWTH = 1.135;
+export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
 export const goldPerKill = (s) => 2 * Math.pow(1.13, s - 1);
 export const isZoneBoss = (s) => s % 10 === 0;
-export const bossHpMult = (s) => (isZoneBoss(s) ? 12 : 6);
 export const bossGoldMult = (s) => (isZoneBoss(s) ? 15 : 6);
-export const milestone = (L) => Math.pow(2, Math.floor(L / 25));
+
+// 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
+export function monsterStats(stage, kind = 'normal') {
+  const p = monPower(stage);
+  const ease = Math.min(1, 0.45 + 0.055 * (stage - 1)); // 초반 10스테이지 완화
+  const m = { hp: 40 * p * ease, def: 5 * p, str: 26 * p * ease, interval: 2 };
+  if (kind === 'boss') { m.hp *= 6; m.def *= 1.3; m.str *= 1.3; }
+  if (kind === 'zoneBoss') { m.hp *= 10; m.def *= 1.5; m.str *= 1.6; m.interval = 1.8; }
+  return m;
+}
+
+// ---- 전투 공식 ----
+export const HERO_BASE = { atk: 5, str: 5, def: 0, hp: 100, crit: 0.05 };
+export const CRIT_MULT = 1.5;
+export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
+// 한 방 최대 피해: (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3
+export const maxHitVs = (atk, str, mDef) => Math.max(1, (atk + str) * 0.85 - mDef * 0.3);
+// 받는 피해: 몬스터 힘 x 0.58 x (1 - 방어 효율), 최소 몬스터 힘의 4%
+export function incomingHit(mStr, def) {
+  const eff = (def * 0.25) / (def * 0.25 + 100 + mStr * 0.2);
+  return Math.max(mStr * 0.04, mStr * 0.58 * (1 - eff));
+}
+export const defEfficiency = (def, mStr) => (def * 0.25) / (def * 0.25 + 100 + mStr * 0.2);
 
 // ---- 지역 ----
 export const ZONES = [
@@ -72,99 +95,113 @@ export function zoneOf(stage) {
   return { ...zone, title: zone.name + (ROMAN[cycle] ?? ` ${cycle + 1}`) };
 }
 
-// ---- 영웅 강화 (골드) ----
-// cost(L) = base * growth^(L - start)
-export const HERO_UPGRADES = [
-  {
-    id: 'atk', icon: '⚔️', name: '공격력', base: 4, growth: 1.07, start: 1,
-    desc: '기본 공격력 · 25레벨마다 x2',
-    val: (L) => 5 * L * milestone(L), show: (v) => fmt(v),
-  },
-  {
-    id: 'hp', icon: '❤️', name: '체력', base: 5, growth: 1.07, start: 1,
-    desc: '최대 체력 · 25레벨마다 x2',
-    val: (L) => 40 * L * milestone(L), show: (v) => fmt(v),
-  },
-  {
-    id: 'speed', icon: '💨', name: '공격 속도', base: 40, growth: 1.25, start: 0, max: 40,
-    desc: '초당 공격 횟수',
-    val: (L) => 1 + 0.05 * L, show: (v) => v.toFixed(2) + '/초',
-  },
-  {
-    id: 'crit', icon: '🎯', name: '치명타 확률', base: 80, growth: 1.22, start: 0, max: 45,
-    desc: '치명타 발생 확률',
-    val: (L) => 0.05 + 0.01 * L, show: (v) => fmtPct(v),
-  },
-  {
-    id: 'critDmg', icon: '💥', name: '치명타 피해', base: 150, growth: 1.16, start: 0,
-    desc: '치명타 피해 배율',
-    val: (L) => 1.5 + 0.1 * L, show: (v) => fmtPct(v),
-  },
-  {
-    id: 'goldUp', icon: '💰', name: '골드 획득', base: 300, growth: 1.15, start: 0,
-    desc: '처치 시 골드 획득량',
-    val: (L) => 1 + 0.05 * L, show: (v) => fmtPct(v),
-  },
-];
-
-// ---- 동료 (골드) ----
-export const COMPANIONS = [
-  { id: 'archer', icon: '🏹', name: '견습 궁수', dps: 3, base: 50 },
-  { id: 'mage', icon: '🔮', name: '떠돌이 마법사', dps: 25, base: 600 },
-  { id: 'druid', icon: '🌿', name: '숲의 드루이드', dps: 180, base: 8e3 },
-  { id: 'knight', icon: '🛡️', name: '강철 기사', dps: 1.5e3, base: 1.2e5 },
-  { id: 'storm', icon: '⚡', name: '폭풍 술사', dps: 1.4e4, base: 2e6 },
-  { id: 'saint', icon: '✨', name: '별빛 성녀', dps: 1.5e5, base: 4e7 },
-  { id: 'dragoon', icon: '🐲', name: '용기사', dps: 2e6, base: 1e9 },
-  { id: 'void', icon: '🌌', name: '공허의 현자', dps: 3e7, base: 3e10 },
-  { id: 'meteor', icon: '☄️', name: '유성 소환사', dps: 5e8, base: 1e12 },
-  { id: 'titan', icon: '🗿', name: '고대 거신', dps: 9e9, base: 4e13 },
-].map((c) => ({ ...c, growth: 1.075, start: 0, val: (L) => c.dps * L * milestone(L) }));
-
-// ---- 유물 (에테르 정수) ----
-export const RELICS = [
-  { id: 'sword', icon: '🗡️', name: '고대의 검', base: 1, growth: 1.45, desc: '영웅 공격력 +30%', per: 0.3 },
-  { id: 'banner', icon: '🚩', name: '동료의 인장', base: 1, growth: 1.45, desc: '동료 DPS +30%', per: 0.3 },
-  { id: 'grail', icon: '🏆', name: '황금 성배', base: 1, growth: 1.5, desc: '골드 획득 +25%', per: 0.25 },
-  { id: 'shield', icon: '🛡️', name: '수호의 방패', base: 1, growth: 1.45, desc: '영웅 체력 +30%', per: 0.3 },
-  { id: 'eye', icon: '👁️', name: '사냥꾼의 눈', base: 2, growth: 1.5, desc: '치명타 피해 +25%', per: 0.25 },
-  { id: 'clover', icon: '🍀', name: '행운의 클로버', base: 2, growth: 1.6, max: 20, desc: '장비 드롭률 +15%', per: 0.15 },
-  { id: 'hourglass', icon: '⏳', name: '시간의 모래시계', base: 3, growth: 1.7, max: 10, desc: '오프라인 시간 +1시간, 효율 +5%', per: 1 },
-  { id: 'flag', icon: '🏁', name: '도약의 깃발', base: 5, growth: 1.6, max: 20, desc: '환생 후 시작 스테이지 +5', per: 5 },
-].map((r) => ({ ...r, start: 0 }));
-
 // ---- 스킬 ----
 export const SKILLS = [
-  { id: 'strike', icon: '⚔️', name: '일격필살', unlock: 5, cd: 10, dur: 0, desc: '공격력 25배 + 동료 DPS 3초분 피해' },
+  { id: 'strike', icon: '⚔️', name: '일격필살', unlock: 5, cd: 12, dur: 0, desc: '최대 피해의 8배로 일격' },
   { id: 'frenzy', icon: '🔥', name: '광폭화', unlock: 15, cd: 45, dur: 12, desc: '12초간 공격 속도 x2' },
-  { id: 'rally', icon: '📯', name: '전투의 함성', unlock: 25, cd: 60, dur: 15, desc: '15초간 동료 DPS x3' },
+  { id: 'fortify', icon: '🛡️', name: '철벽', unlock: 25, cd: 60, dur: 15, desc: '15초간 받는 피해 -50%' },
   { id: 'midas', icon: '💰', name: '황금비', unlock: 35, cd: 90, dur: 20, desc: '20초간 골드 획득 x3' },
 ];
 
-// ---- 장비 ----
+// ---- 장비 등급 (21단계) ----
+// mult: 능력치 배율, w: 드롭 가중치
 export const RARITIES = [
-  { name: '일반', color: '#b8b8b8', mult: 1 },
-  { name: '고급', color: '#5fd35f', mult: 1.6 },
-  { name: '희귀', color: '#4da3ff', mult: 2.6 },
-  { name: '영웅', color: '#c37bff', mult: 4.2 },
-  { name: '전설', color: '#ffa63d', mult: 7 },
+  { name: '일반', color: '#b8b8b8', mult: 1.0, w: 1 },
+  { name: '고급', color: '#5fd35f', mult: 1.12, w: 0.4 },
+  { name: '희귀', color: '#4da3ff', mult: 1.25, w: 0.17 },
+  { name: '영웅', color: '#c37bff', mult: 1.4, w: 0.08 },
+  { name: '전설', color: '#ffa63d', mult: 1.6, w: 0.035 },
+  { name: '신화', color: '#ff5e7e', mult: 1.8, w: 0.016 },
+  { name: '태고', color: '#d4b483', mult: 2.05, w: 7e-3 },
+  { name: '별빛', color: '#9fd8ff', mult: 2.3, w: 3e-3 },
+  { name: '월광', color: '#c9d6ff', mult: 2.6, w: 1.3e-3 },
+  { name: '일식', color: '#ff8c42', mult: 2.9, w: 5.5e-4 },
+  { name: '서리불꽃', color: '#7ee8fa', mult: 3.25, w: 2.3e-4 },
+  { name: '폭풍', color: '#8ab4ff', mult: 3.6, w: 1e-4 },
+  { name: '용혼', color: '#ff4040', mult: 4.0, w: 4e-5 },
+  { name: '천둥왕', color: '#ffe14d', mult: 4.45, w: 1.7e-5 },
+  { name: '성광', color: '#fff6b0', mult: 4.95, w: 7e-6 },
+  { name: '공허', color: '#9b6bff', mult: 5.5, w: 3e-6 },
+  { name: '영겁', color: '#5ef0c0', mult: 6.1, w: 1.3e-6 },
+  { name: '천상', color: '#bfe9ff', mult: 6.8, w: 5e-7 },
+  { name: '초월', color: '#ff9cf2', mult: 7.5, w: 2e-7 },
+  { name: '창세', color: '#9effa8', mult: 8.3, w: 8e-8 },
+  { name: '에테르', color: '#ffffff', mult: 9.2, w: 3e-8 },
 ];
-export const DROP_WEIGHTS = {
-  normal: [60, 26, 10, 3.3, 0.7],
-  boss: [20, 40, 26, 11, 3],
-  zoneBoss: [0, 30, 40, 22, 8],
-};
+const RARITY_TOTAL = RARITIES.reduce((a, r) => a + r.w, 0);
+
+// 등급 굴림: luck번 굴려 가장 높은 등급 (보스일수록 luck이 큼)
+export function rollRarity(luck = 1, rnd = Math.random) {
+  let best = 0;
+  for (let i = 0; i < luck; i++) {
+    let x = rnd() * RARITY_TOTAL;
+    let r = 0;
+    for (; r < RARITIES.length - 1; r++) {
+      x -= RARITIES[r].w;
+      if (x < 0) break;
+    }
+    if (r > best) best = r;
+  }
+  return best;
+}
+
+// ---- 장비 ----
+// 재질: 아이템 레벨 10마다 한 단계
+export const MATERIALS = ['청동', '철', '강철', '은강', '미스릴', '아다만', '룬', '용린', '별철', '에테르', '공허', '태초'];
+export const materialOf = (lvl) => MATERIALS[Math.min(MATERIALS.length - 1, Math.floor((Math.max(1, lvl) - 1) / 10))];
+
+// 부위별 기본 능력치 (레벨 1 · 일반 기준). crit은 성장하지 않고 등급 배율만 받음
 export const SLOTS = {
-  weapon: { name: '무기', icon: '🗡️', stat: '영웅 공격력', names: ['녹슨 검', '강철 검', '룬 블레이드', '용살자의 검', '에테르 성검'] },
-  armor: { name: '방어구', icon: '🥋', stat: '영웅 체력', names: ['가죽 갑옷', '사슬 갑옷', '미스릴 흉갑', '용린 갑주', '별빛 성갑'] },
-  accessory: { name: '장신구', icon: '💍', stat: '동료 DPS', names: ['구리 반지', '은 목걸이', '마력의 부적', '현자의 보주', '영원의 인장'] },
+  weapon: { name: '무기', icon: '🗡️' },
+  shield: { name: '방패', icon: '🛡️', noun: '방패', stats: { def: 8, hp: 20 } },
+  helm: { name: '투구', icon: '⛑️', noun: '투구', stats: { def: 5, hp: 10 } },
+  body: { name: '갑옷', icon: '🥋', noun: '갑옷', stats: { def: 12, hp: 30 } },
+  legs: { name: '각반', icon: '👖', noun: '각반', stats: { def: 9, hp: 20 } },
+  gloves: { name: '장갑', icon: '🧤', noun: '장갑', stats: { atk: 3, crit: 0.02 } },
+  boots: { name: '장화', icon: '👢', noun: '장화', stats: { def: 3, hp: 10 } },
+  amulet: { name: '목걸이', icon: '📿', noun: '목걸이', stats: { str: 5, crit: 0.02 } },
+  cape: { name: '망토', icon: '🧣', noun: '망토', stats: { def: 4, hp: 15 } },
 };
 export const SLOT_IDS = Object.keys(SLOTS);
+
+// 무기 종류: 한손검(최소 피해↑) · 장검(힘↑) · 양손검(강력하지만 방패 불가, 느림)
+export const WEAPONS = {
+  sword: { noun: '한손검', stats: { atk: 10 }, minHit: 0.1, speed: 1.0 },
+  blade: { noun: '장검', stats: { atk: 9, str: 4 }, minHit: 0, speed: 0.95 },
+  great: { noun: '양손검', stats: { atk: 17, str: 8 }, minHit: 0, speed: 0.75, twoHand: true },
+};
+export const WEAPON_IDS = Object.keys(WEAPONS);
+
+export const STAT_NAMES = { atk: '공격', str: '힘', def: '방어', hp: '체력', crit: '치명타' };
 export const ENHANCE_MAX = 10;
 
-export const itemPct = (it) => RARITIES[it.r].mult * (10 + it.lvl * 1.5) * (1 + 0.15 * it.enh);
-export const itemName = (it) => SLOTS[it.slot].names[it.r] + (it.enh > 0 ? ` +${it.enh}` : '');
-export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + it.enh * 0.5);
-export const enhanceCost = (it) => goldPerKill(it.lvl) * 12 * Math.pow(1.55, it.enh);
+export function baseStats(it) {
+  return it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'].stats : SLOTS[it.slot].stats;
+}
 
-export const prestigeGain = (runMax) => (runMax < PRESTIGE_MIN ? 0 : Math.floor(Math.pow((runMax - 30) / 10, 2)));
+// 장비 최종 능력치
+export function itemStats(it) {
+  const out = {};
+  const m = RARITIES[it.r].mult * (1 + 0.1 * (it.enh || 0));
+  const p = power(it.lvl);
+  for (const [k, v] of Object.entries(baseStats(it))) out[k] = k === 'crit' ? v * RARITIES[it.r].mult : v * p * m;
+  return out;
+}
+
+// 비교용 점수 (공격·힘 > 방어 > 체력)
+export function itemScore(it) {
+  if (!it) return 0;
+  const st = itemStats(it);
+  return (st.atk || 0) + (st.str || 0) + (st.def || 0) * 0.5 + (st.hp || 0) * 0.15 + (st.crit || 0) * 30 * power(it.lvl);
+}
+
+export const itemName = (it) => {
+  const noun = it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'].noun : SLOTS[it.slot].noun;
+  return `${materialOf(it.lvl)} ${noun}` + (it.enh > 0 ? ` +${it.enh}` : '');
+};
+export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5);
+export const enhanceCost = (it) => goldPerKill(it.lvl) * 15 * Math.pow(1.55, it.enh || 0);
+
+export function statText(st) {
+  return Object.entries(st).map(([k, v]) => `${STAT_NAMES[k]} ${k === 'crit' ? (v * 100).toFixed(1) + '%' : fmt(v)}`).join(' · ');
+}

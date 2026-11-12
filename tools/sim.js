@@ -1,31 +1,42 @@
-// 밸런스 시뮬레이션: 단순 봇이 가장 싼 강화부터 구매하며 플레이
-// 사용법: npm run sim -- <시간(h)>
+// 밸런스 시뮬레이션: 봇이 장비 자동 장착 · 가장 싼 강화부터 · 막히면 보스 재도전
+// 사용법: node tools/sim.js <시간(h)>  (브라우저 콘솔에서는 runSim(시간)으로도 실행 가능)
 import { Game } from '../www/js/game.js';
 import { newState } from '../www/js/state.js';
-import { HERO_UPGRADES, COMPANIONS, RELICS } from '../www/js/data.js';
+import { SLOT_IDS, RARITIES, enhanceCost } from '../www/js/data.js';
 import { fmt } from '../www/js/format.js';
 
-const hours = Number(process.argv[2] || 6);
-const g = new Game(newState());
-g.s.autoSkill = true;
-g.s.settings.buyMult = 1;
-const dt = 0.1;
-let lastReport = 0;
-for (let t = 0; t < hours * 3600; t += dt) {
-  g.update(dt);
-  if (Math.round(t * 10) % 20 === 0) {
-    // 가장 싼 항목부터 구매
-    for (let i = 0; i < 20; i++) {
-      const opts = [];
-      for (const u of HERO_UPGRADES) { const p = g.plan(u, g.s.hero[u.id], g.s.gold, 1); if (!p.maxed) opts.push([p.cost * (u.id === 'atk' || u.id === 'hp' ? 1 : 1.5), () => g.buyHero(u.id)]); }
-      for (const c of COMPANIONS) { const p = g.plan(c, g.s.comps[c.id] || 0, g.s.gold, 1); opts.push([p.cost, () => g.buyComp(c.id)]); }
-      opts.sort((a, b) => a[0] - b[0]);
-      if (!opts.length || !opts[0][1]()) break;
+export function runSim(hours = 2, log = console.log) {
+  const g = new Game(newState());
+  g.s.autoSkill = true;
+  const dt = 0.1;
+  let lastReport = 0;
+  let lastBoss = 0;
+  const rows = [];
+  for (let t = 0; t < hours * 3600; t += dt) {
+    g.update(dt);
+    if (Math.round(t * 10) % 50 === 0) {
+      // 장착 장비 중 가장 싼 강화부터
+      for (let i = 0; i < 10; i++) {
+        let best = null;
+        for (const slot of SLOT_IDS) {
+          const it = g.s.equip[slot];
+          if (it && it.enh < 10 && (!best || enhanceCost(it) < enhanceCost(best))) best = it;
+        }
+        if (!best || !g.enhance(best.id)) break;
+      }
+      if (g.s.inv.length > 40) g.sellBelow(3);
+      if (!g.s.autoAdvance && g.s.kills >= 10 && t - lastBoss > 90) { g.challengeBoss(); lastBoss = t; }
     }
-    if (!g.s.autoAdvance && g.s.kills >= 10 && Math.round(t) % 60 === 0) g.challengeBoss();
+    if (t - lastReport >= 600) {
+      lastReport = t;
+      const eq = SLOT_IDS.filter((k) => g.s.equip[k]).length;
+      const row = `${(t / 3600).toFixed(2)}h stage=${g.s.stage} max=${g.s.maxStage} deaths=${g.s.stats.deaths} gear=${eq}/9 best=${RARITIES[g.s.stats.bestRarity].name} dps=${fmt(g.totalDps())} gold=${fmt(g.s.gold)}`;
+      rows.push(row);
+      log(row);
+    }
+    g.rt.toasts.length = 0;
   }
-  if (t - lastReport >= 600) {
-    lastReport = t;
-    console.log(`${(t/3600).toFixed(1)}h stage=${g.s.stage} max=${g.s.runMaxStage} gold=${fmt(g.s.gold)} dps=${fmt(g.totalDps())} atkLv=${g.s.hero.atk} gain=${g.prestigeGain()}`);
-  }
+  return rows;
 }
+
+if (typeof process !== 'undefined' && process.argv?.[1]?.endsWith('sim.js')) runSim(Number(process.argv[2] || 2));

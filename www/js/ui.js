@@ -1,8 +1,7 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  HERO_UPGRADES, COMPANIONS, RELICS, SKILLS, SLOTS, SLOT_IDS, RARITIES, STAGE_KILLS, BOSS_TIME,
-  INV_MAX, ENHANCE_MAX, PRESTIGE_MIN, GAME_NAME, VERSION,
-  zoneOf, itemPct, itemName, itemSellPrice, enhanceCost, prestigeGain, goldPerKill,
+  SKILLS, SLOTS, SLOT_IDS, RARITIES, WEAPONS, STAGE_KILLS, BOSS_TIME, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
+  zoneOf, itemName, itemStats, itemSellPrice, enhanceCost, goldPerKill, statText, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
@@ -56,7 +55,7 @@ export class UI {
     this.tab = 'hero';
     this.updaters = [];
     this.dom = {
-      gold: $('#gold'), essence: $('#essence'), dps: $('#dps'),
+      gold: $('#gold'), power: $('#power'), dps: $('#dps'),
       stageName: $('#stageName'), zoneName: $('#zoneName'),
       progFill: $('#progFill'), progText: $('#progText'), bossBtn: $('#bossBtn'), speedBtn: $('#speedBtn'),
       panel: $('#panel'), skills: $('#skills'), toasts: $('#toasts'),
@@ -91,7 +90,7 @@ export class UI {
     const rt = g.rt;
     const d = this.dom;
     setText(d.gold, fmt(s.gold));
-    setText(d.essence, fmt(s.essence));
+    setText(d.power, fmt(g.powerScore()));
     setText(d.dps, fmt(g.totalDps()));
     const zone = zoneOf(s.stage);
     setText(d.stageName, `스테이지 ${s.stage}`);
@@ -119,7 +118,7 @@ export class UI {
     this.updateSpeed();
     this.updateSkills();
     for (const u of this.updaters) u();
-    if (this.tab === 'gear' && rt.invDirty) this.showTab('gear', true);
+    if ((this.tab === 'gear' || this.tab === 'hero') && rt.invDirty) this.showTab(this.tab, true);
     if (this.tab === 'life' && this.lifeDirty) this.showTab('life', true);
     rt.invDirty = false;
 
@@ -163,7 +162,7 @@ export class UI {
     this.modal('🌙 돌아오셨군요!', `
       <p>자리를 비운 <b>${fmtTime(r.sec)}</b> 동안 원정대가 계속 싸웠습니다.</p>
       <div class="reward">💰 <b>${fmt(r.gold)}</b> 골드</div>
-      <p class="muted">처치 ${fmt(r.kills)} · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>
+      <p class="muted">처치 ${fmt(r.kills)} · 장비 ${fmt(r.drops || 0)}개 · 뼈 ${fmt(r.bones || 0)}개 · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>
       ${r.life ? lifeLines(r.life) : ''}`,
     [{ label: '받기', cls: 'primary' }]);
   }
@@ -217,39 +216,31 @@ export class UI {
     this.dom.panel.innerHTML = '';
     this.updaters = [];
     const fn = {
-      hero: this.tabHero, comp: this.tabComp, gear: this.tabGear, life: this.tabLife, relic: this.tabRelic, more: this.tabMore,
+      hero: this.tabHero, gear: this.tabGear, life: this.tabLife, more: this.tabMore,
     }[id];
     fn.call(this, this.dom.panel);
     for (const u of this.updaters) u();
     this.dom.panel.scrollTop = keepScroll ? scroll : 0;
   }
 
-  buyBar(panel) {
-    const bar = h('div', 'buybar');
-    const opts = [1, 10, 100, 'max'];
-    const btns = opts.map((o) => {
-      const b = h('button', '', o === 'max' ? 'MAX' : 'x' + o);
-      b.addEventListener('click', () => { this.game.s.settings.buyMult = o; });
-      bar.appendChild(b);
-      return [o, b];
-    });
-    this.updaters.push(() => {
-      for (const [o, b] of btns) b.classList.toggle('on', this.game.s.settings.buyMult === o);
-    });
-    panel.appendChild(bar);
-  }
-
   tabHero(panel) {
     const g = this.game;
+    const s = g.s;
     const card = h('div', 'card stats');
+    panel.appendChild(h('div', 'section-title', '⚔️ 능력치 (장비로 결정)'));
     panel.appendChild(card);
+    const mon = () => g.rt.monster || { def: 0, str: 0 };
     const fields = [
-      ['⚔️ 공격력', () => fmt(g.heroAtk())],
+      ['⚔️ 공격', () => fmt(g.stats().atk)],
+      ['💪 힘', () => fmt(g.stats().str)],
+      ['🛡️ 방어', () => fmt(g.stats().def)],
       ['❤️ 체력', () => `${fmt(Math.max(0, g.rt.heroHp))} / ${fmt(g.heroMaxHp())}`],
+      ['🎯 치명타', () => fmtPct(g.stats().crit, 1) + ' · x' + CRIT_MULT],
       ['💨 공격 속도', () => g.atkSpeed().toFixed(2) + '/초'],
-      ['🎯 치명타', () => `${fmtPct(g.critChance())} · ${fmtPct(g.critMult())}`],
-      ['🗡️ 영웅 DPS', () => fmt(g.heroDps())],
-      ['👥 동료 DPS', () => fmt(g.compDps())],
+      ['🗡️ 피해 범위', () => `${fmt(g.maxHit() * g.minHitFrac())}~${fmt(g.maxHit())}`],
+      ['📈 DPS', () => fmt(g.totalDps())],
+      ['💥 받는 피해', () => fmt(incomingHit(mon().str, g.stats().def)) + '/회'],
+      ['🧱 피해 감소', () => fmtPct(defEfficiency(g.stats().def, mon().str), 1)],
     ];
     const vals = fields.map(([label]) => {
       const it = h('div', 'stat', `<span>${label}</span><b></b>`);
@@ -257,80 +248,47 @@ export class UI {
       return $('b', it);
     });
     this.updaters.push(() => fields.forEach(([, f], i) => setText(vals[i], f())));
+    const pw = h('div', 'card note power');
+    panel.appendChild(pw);
+    this.updaters.push(() => setText(pw, `전투력 ${fmt(g.powerScore())} · 몬스터(스테이지 ${s.stage}) 체력 ${fmt(mon().maxHp || 0)} · 방어 ${fmt(mon().def)} · 힘 ${fmt(mon().str)}`));
 
-    this.buyBar(panel);
-    for (const def of HERO_UPGRADES) {
-      const r = makeRow(def.icon);
-      setText(r.name, def.name);
-      r.btn.addEventListener('click', () => g.buyHero(def.id));
-      panel.appendChild(r.el);
-      this.updaters.push(() => {
-        const L = g.s.hero[def.id];
-        const p = g.plan(def, L, g.s.gold, g.s.settings.buyMult);
-        setText(r.lv, p.maxed ? `Lv ${L} (MAX)` : `Lv ${L}`);
-        setText(r.desc, p.maxed ? `${def.desc} · ${def.show(def.val(L))}` : `${def.desc} · ${def.show(def.val(L))} → ${def.show(def.val(L + p.n))}`);
-        setText(r.bt1, p.maxed ? 'MAX' : `+${p.n}`);
-        setText(r.bt2, p.maxed ? '' : '💰 ' + fmt(p.cost));
-        setDisabled(r.btn, p.maxed || p.cost > g.s.gold);
-      });
-    }
-  }
-
-  tabComp(panel) {
-    const g = this.game;
-    const info = h('div', 'card note', '동료는 영웅과 함께 자동으로 지속 피해를 줍니다. 25레벨마다 피해량 x2!');
-    panel.appendChild(info);
-    this.buyBar(panel);
-    COMPANIONS.forEach((def, i) => {
-      const r = makeRow(def.icon);
-      r.btn.addEventListener('click', () => {
-        if (g.buyComp(def.id)) this.updaters.forEach((u) => u());
-      });
-      panel.appendChild(r.el);
-      this.updaters.push(() => {
-        const L = g.s.comps[def.id] || 0;
-        const prevOwned = i === 0 || (g.s.comps[COMPANIONS[i - 1].id] || 0) > 0;
-        const visible = L > 0 || prevOwned;
-        r.el.classList.toggle('hidden-row', !visible);
-        r.el.classList.toggle('locked', !visible);
-        if (!visible) {
-          setText(r.name, '???');
-          setText(r.lv, '');
-          setText(r.desc, '이전 동료를 고용하면 공개됩니다');
-          setText(r.bt1, '잠김');
-          setText(r.bt2, '');
-          setDisabled(r.btn, true);
-          return;
+    panel.appendChild(h('div', 'section-title', '🎽 장착 장비'));
+    const wrap = h('div');
+    panel.appendChild(wrap);
+    const build = () => {
+      wrap.innerHTML = '';
+      for (const slot of SLOT_IDS) {
+        const it = s.equip[slot];
+        if (it) wrap.appendChild(this.itemCard(it, true));
+        else {
+          const off = slot === 'shield' && g.twoHanded();
+          wrap.appendChild(h('div', 'item empty', `<div class="iicon">${SLOTS[slot].icon}</div><div class="iinfo"><div class="iname">${SLOTS[slot].name} 없음</div><div class="istat">${off ? '양손검 착용 중' : '몬스터 드롭 · 대장기술 · 제작으로 획득'}</div></div>`));
         }
-        const p = g.plan(def, L, g.s.gold, g.s.settings.buyMult);
-        const mult = g.compMult();
-        setText(r.name, def.name);
-        setText(r.lv, L > 0 ? `Lv ${L}` : '미고용');
-        setText(r.desc, `DPS ${fmt(def.val(L) * mult)} → ${fmt(def.val(L + p.n) * mult)}`);
-        setText(r.bt1, L > 0 ? `+${p.n}` : '고용');
-        setText(r.bt2, '💰 ' + fmt(p.cost));
-        setDisabled(r.btn, p.cost > g.s.gold);
-      });
-    });
+      }
+    };
+    build();
+    this.heroRebuild = build;
   }
 
   itemCard(it, equipped) {
     const g = this.game;
     const rar = RARITIES[it.r];
-    const slot = SLOTS[it.slot];
+    const icon = it.slot === 'weapon' ? (WEAPONS[it.kind || 'sword'].twoHand ? '⚔️' : '🗡️') : SLOTS[it.slot].icon;
     const el = h('div', 'item' + (equipped ? ' equipped' : ''));
     el.style.setProperty('--rc', rar.color);
-    const eq = g.s.equip[it.slot];
     let diff = '';
     if (!equipped) {
-      const d = itemPct(it) - (eq ? itemPct(eq) : 0);
-      diff = `<span class="diff ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))}%</span>`;
+      const d = g.upgradeGain(it);
+      diff = `<span class="diff ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))}</span>`;
     }
+    const inactive = equipped && it.slot === 'shield' && g.twoHanded();
+    const wd = it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'] : null;
+    const extra = wd ? ` · 속도 ${wd.speed}${wd.minHit ? ' · 최소피해+' + Math.round(wd.minHit * 100) + '%' : ''}${wd.twoHand ? ' · 양손' : ''}` : '';
     el.innerHTML = `
-      <div class="iicon">${slot.icon}</div>
+      <div class="iicon">${icon}</div>
       <div class="iinfo">
-        <div class="iname" style="color:${rar.color}">${itemName(it)}</div>
-        <div class="istat">${rar.name} · Lv${it.lvl} · ${slot.stat} +${fmt(itemPct(it))}% ${diff}</div>
+        <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)} <small>Lv${it.lvl}</small></div>
+        <div class="istat">${statText(itemStats(it))}${extra} ${diff}${inactive ? ' <span class="diff down">양손검으로 비활성</span>' : ''}</div>
       </div>
       <div class="ibtns"></div>`;
     const btns = $('.ibtns', el);
@@ -341,14 +299,21 @@ export class UI {
         enh.innerHTML = it.enh >= ENHANCE_MAX ? '강화 MAX' : `강화 +${it.enh + 1}<br><small>💰 ${fmt(c)}</small>`;
         setDisabled(enh, it.enh >= ENHANCE_MAX || c > g.s.gold);
       };
-      enh.addEventListener('click', () => { if (g.enhance(it.id)) this.toast(`${itemName(it)} 강화 성공!`, 'good'); });
+      enh.addEventListener('click', () => {
+        if (g.enhance(it.id)) {
+          this.toast(`${itemName(it)} 강화 성공!`, 'good');
+          this.showTab(this.tab, true);
+        }
+      });
       this.updaters.push(upd);
-      btns.appendChild(enh);
+      const off = h('button', 'btn small', '해제');
+      off.addEventListener('click', () => { if (g.unequip(it.slot)) this.showTab(this.tab, true); else this.toast('가방이 가득 찼습니다', 'bad'); });
+      btns.append(enh, off);
     } else {
       const eb = h('button', 'btn small primary', '장착');
-      eb.addEventListener('click', () => g.equipItem(it.id));
+      eb.addEventListener('click', () => { g.equipItem(it.id); this.showTab(this.tab, true); });
       const sb = h('button', 'btn small', `판매<br><small>💰 ${fmt(itemSellPrice(it))}</small>`);
-      sb.addEventListener('click', () => g.sellItem(it.id));
+      sb.addEventListener('click', () => { g.sellItem(it.id); this.showTab(this.tab, true); });
       btns.append(eb, sb);
     }
     return el;
@@ -357,26 +322,23 @@ export class UI {
   tabGear(panel) {
     const g = this.game;
     const s = g.s;
-    panel.appendChild(h('div', 'section-title', '장착 장비'));
-    for (const slot of SLOT_IDS) {
-      const it = s.equip[slot];
-      if (it) panel.appendChild(this.itemCard(it, true));
-      else panel.appendChild(h('div', 'item empty', `<div class="iicon">${SLOTS[slot].icon}</div><div class="iinfo"><div class="iname">${SLOTS[slot].name} 없음</div><div class="istat">몬스터 처치 시 확률적으로 획득 (${SLOTS[slot].stat} 증가)</div></div>`));
-    }
-
     const opts = h('div', 'card opts');
-    const sellOpts = ['끄기', ...RARITIES.slice(1).map((r, i) => `${RARITIES[i].name} 이하`)];
+    const sellOpts = ['끄기', ...RARITIES.slice(1, 9).map((r, i) => `${RARITIES[i].name} 이하`)];
     opts.innerHTML = `
       <label class="toggle"><input type="checkbox" id="optAutoEquip"> 더 좋은 장비 자동 장착</label>
       <label>자동 판매 <select id="optAutoSell">${sellOpts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></label>
-      <div class="muted">드롭률 ${fmtPct(g.dropChance(), 1)} · 보스는 항상 드롭</div>`;
+      <div class="muted">드롭률 6% · 보스는 등급을 4번, 지역 보스는 8번 굴려 가장 좋은 등급 · 최고 획득 등급 <b style="color:${RARITIES[s.stats.bestRarity || 0].color}">${RARITIES[s.stats.bestRarity || 0].name}</b></div>`;
     panel.appendChild(opts);
     const ae = $('#optAutoEquip', opts);
     ae.checked = s.settings.autoEquip;
     ae.addEventListener('change', () => { s.settings.autoEquip = ae.checked; });
     const as = $('#optAutoSell', opts);
-    as.value = String(s.settings.autoSell);
+    as.value = String(Math.min(s.settings.autoSell, sellOpts.length - 1));
     as.addEventListener('change', () => { s.settings.autoSell = Number(as.value); });
+
+    // 등급표
+    const tbl = h('details', 'card rartable', `<summary>장비 등급 ${RARITIES.length}단계 보기</summary><div class="rgrid">${RARITIES.map((r) => `<span style="color:${r.color}">${r.name} x${r.mult}</span>`).join('')}</div>`);
+    panel.appendChild(tbl);
 
     const head = h('div', 'section-title', `가방 (${s.inv.length}/${INV_MAX})`);
     const bulk = h('button', 'btn small', '희귀 이하 일괄 판매');
@@ -387,7 +349,7 @@ export class UI {
     head.appendChild(bulk);
     panel.appendChild(head);
     if (!s.inv.length) panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다'));
-    const sorted = [...s.inv].sort((a, b) => b.r - a.r || itemPct(b) - itemPct(a));
+    const sorted = [...s.inv].sort((a, b) => g.upgradeGain(b) - g.upgradeGain(a));
     for (const it of sorted) panel.appendChild(this.itemCard(it, false));
   }
 
@@ -518,7 +480,7 @@ export class UI {
         const parts = [];
         if (a.in) parts.push('필요: ' + Object.entries(a.in).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
         if (a.out) parts.push('획득: ' + matList(a.out));
-        if (a.equip) parts.push(`획득: ${a.equip.slots.map((x) => SLOTS[x].name).join('/')} · ${RARITIES[a.equip.r].name} · Lv${Math.max(1, s.maxStage)}`);
+        if (a.equip) parts.push(`획득: ${a.equip.slots.map((x) => SLOTS[x].name).join('/')} · <span style="color:${RARITIES[a.equip.r].color}">${RARITIES[a.equip.r].name}</span> 이상 · Lv${Math.max(1, s.maxStage)}`);
         if (a.gold) parts.push(`골드 약 ${fmt(a.gold * g.goldMult() * goldPerKillAt(s))}`);
         if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)}`).join(', '));
         const extra = [`XP ${fmt(actionXp(s, a))}`, `${actionTime(s, k.id, a).toFixed(1)}초 (x${speedMult(s, k.id, a).toFixed(2)})`];
@@ -654,57 +616,6 @@ export class UI {
     }
   }
 
-  tabRelic(panel) {
-    const g = this.game;
-    const s = g.s;
-    const card = h('div', 'card prestige', `
-      <div class="ptitle">✨ 환생</div>
-      <p>지금까지의 진행(스테이지·골드·영웅·동료)을 초기화하고 <b>에테르 정수 🔮</b>를 얻습니다.
-      장비와 유물은 유지됩니다. 누적 정수 1개당 모든 피해 <b>+2%</b>.</p>
-      <div class="pstats"></div>
-      <button class="btn primary big" id="prestigeBtn"></button>`);
-    panel.appendChild(card);
-    const pstats = $('.pstats', card);
-    const pbtn = $('#prestigeBtn', card);
-    pbtn.addEventListener('click', () => {
-      const gain = g.prestigeGain();
-      if (gain <= 0) return;
-      this.modal('환생하시겠습니까?', `
-        <p>에테르 정수 <b>🔮 ${gain}</b>개를 얻고 스테이지 ${1 + 5 * g.relic('flag')}부터 다시 시작합니다.</p>
-        <p class="muted">골드, 영웅 강화, 동료가 초기화됩니다.</p>`,
-      [{ label: '취소' }, { label: '환생', cls: 'primary', onClick: () => { g.prestige(); this.hooks.onSave(); this.showTab('relic'); } }]);
-    });
-    this.updaters.push(() => {
-      const gain = g.prestigeGain();
-      const next = s.runMaxStage < PRESTIGE_MIN ? PRESTIGE_MIN : null;
-      pstats.innerHTML = `
-        <div>이번 원정 최고 스테이지 <b>${s.runMaxStage}</b> · 역대 최고 <b>${s.maxStage}</b></div>
-        <div>누적 정수 <b>${fmt(s.stats.essenceEarned)}</b> → 피해 <b>x${g.essenceMult().toFixed(2)}</b></div>
-        <div>다음 정수까지: 스테이지 <b>${next ?? nextGainStage(s.runMaxStage)}</b></div>`;
-      pbtn.textContent = gain > 0 ? `환생하기 (+🔮 ${gain})` : `스테이지 ${PRESTIGE_MIN}부터 가능`;
-      setDisabled(pbtn, gain <= 0);
-    });
-
-    const title = h('div', 'section-title');
-    panel.appendChild(title);
-    this.updaters.push(() => setText(title, `유물 · 보유 🔮 ${fmt(s.essence)}`));
-    for (const def of RELICS) {
-      const r = makeRow(def.icon);
-      setText(r.name, def.name);
-      r.btn.addEventListener('click', () => g.buyRelic(def.id));
-      panel.appendChild(r.el);
-      this.updaters.push(() => {
-        const L = g.relic(def.id);
-        const p = g.relicPlan(def.id);
-        setText(r.lv, p.maxed ? `Lv ${L} (MAX)` : `Lv ${L}`);
-        setText(r.desc, `${def.desc} / Lv`);
-        setText(r.bt1, p.maxed ? 'MAX' : '+1');
-        setText(r.bt2, p.maxed ? '' : '🔮 ' + fmt(Math.ceil(p.cost)));
-        setDisabled(r.btn, p.maxed || Math.ceil(p.cost) > s.essence);
-      });
-    }
-  }
-
   tabMore(panel) {
     const g = this.game;
     const s = g.s;
@@ -718,7 +629,8 @@ export class UI {
       ['누적 골드', () => fmt(s.stats.goldEarned)],
       ['획득 장비', () => fmt(s.stats.items)],
       ['탭 횟수', () => fmt(s.stats.taps)],
-      ['환생 횟수', () => fmt(s.stats.prestiges)],
+      ['쓰러진 횟수', () => fmt(s.stats.deaths || 0)],
+      ['최고 등급', () => RARITIES[s.stats.bestRarity || 0].name],
       ['역대 최고', () => '스테이지 ' + s.maxStage],
     ];
     const vals = rows.map(([label]) => {
@@ -769,9 +681,11 @@ export class UI {
         <li>스테이지마다 몬스터 ${STAGE_KILLS}마리를 처치하면 <b>보스</b>가 등장합니다 (제한시간 ${BOSS_TIME}초).</li>
         <li>보스에게 지면 사냥 모드로 바뀝니다. 강해진 뒤 <b>👑 보스 도전</b>을 누르세요.</li>
         <li>스킬은 스테이지 진행에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
-        <li>막히면 <b>환생</b>으로 정수를 얻어 유물을 강화하세요.</li>
-        <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만들고, 생활 스킬은 환생해도 유지됩니다.</li>
-        <li>게임을 꺼도 최대 ${fmtTime(g.offlineCapSec())} 동안 골드를 모읍니다.</li>
+        <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 9부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
+        <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
+        <li>막히면 이전 스테이지에서 장비를 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
+        <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만듭니다.</li>
+        <li>게임을 꺼도 최대 ${fmtTime(g.offlineCapSec())} 동안 골드·장비·뼈를 모으고 생활 스킬이 진행됩니다.</li>
       </ul>
       <p class="muted center">${GAME_NAME} v${VERSION}</p>`));
   }
@@ -789,11 +703,3 @@ function lifeLines(log) {
 function matList(obj) {
   return Object.entries(obj).map(([id, n]) => `${MATS[id].icon} ${MATS[id].name} ${n}`).join(', ');
 }
-
-function nextGainStage(runMax) {
-  const cur = prestigeGain(runMax);
-  let st = runMax;
-  while (prestigeGain(st) <= cur && st < runMax + 500) st++;
-  return st;
-}
-
