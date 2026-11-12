@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.6.0';
+export const VERSION = '3.7.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -393,7 +393,7 @@ export const POT_LOCK_COST = [1, 3, 8, 20, 50];
 export const PET_POT_LINES = 5;
 export const PET_ENH_MAX = 50;
 export const PET_ENH = { atk: 0.015, def: 0.02, hp: 0.02 }; // 강화 1레벨당
-export const petEnhCost = (lvl, L) => goldPerKill(Math.max(1, lvl)) * 20 * Math.pow(1.2, L);
+export const petEnhCost = (lvl, L) => goldPerKill(Math.max(1, lvl)) * 35 * Math.pow(1.23, L); // 평생 유지되므로 예전보다 조금 비쌈
 export const potValue = (key, t) => {
   const l = POT_LINES.find((x) => x.key === key);
   return l ? Math.round(l.b * POT_MULT(t) * 1e4) / 1e4 : 0;
@@ -452,7 +452,8 @@ export const itemNoun = (it) => {
 };
 export const itemName = (it) => `${materialOf(it.lvl)} ${itemNoun(it)}` + (it.enh > 0 ? ` +${it.enh}` : '');
 export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5);
-export const enhanceCost = (it) => goldPerKill(it.lvl) * 15 * Math.pow(1.55, it.enh || 0);
+// 장비칸 강화는 평생 유지되므로 비쌈 (예전보다 조금 비쌈)
+export const enhanceCost = (it) => goldPerKill(it.lvl) * 30 * Math.pow(1.65, it.enh || 0);
 
 export const statVal = (k, v) => (PCT_STATS.includes(k) ? (v * 100).toFixed(k === 'regen' ? 2 : 1) + '%' : fmt(v));
 export function statText(st) {

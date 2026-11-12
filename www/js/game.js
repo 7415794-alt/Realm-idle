@@ -85,7 +85,9 @@ export class Game {
       const it = this.s.equip[slot];
       if (!it) continue;
       if (slot === 'shield' && this.twoHanded()) continue;
-      for (const [k, v] of Object.entries(itemStats(it))) st[k] = (st[k] || 0) + v;
+      // 강화는 장비칸 기준
+      const enh = this.s.slots?.[slot]?.enh || 0;
+      for (const [k, v] of Object.entries(itemStats(enh ? { ...it, enh } : it))) st[k] = (st[k] || 0) + v;
     }
     this.rt.statCache = st;
     return st;
@@ -506,7 +508,8 @@ export class Game {
   // 장착 장비 잠재능력 합 (장비가 바뀔 때만 다시 계산)
   potBonus(key) {
     if (!this.rt.potCache) {
-      const items = SLOT_IDS.filter((sl) => !(sl === 'shield' && this.twoHanded())).map((sl) => this.s.equip[sl]);
+      // 잠재능력은 장비칸 기준 (장비를 낀 칸만 적용)
+      const items = SLOT_IDS.filter((sl) => this.s.equip[sl] && !(sl === 'shield' && this.twoHanded())).map((sl) => this.s.slots?.[sl]);
       const ap = this.s.world.pets.active;
       if (ap && this.s.world.pets.owned.includes(ap)) items.push(this.s.world.pets.data?.[ap]);
       this.rt.potCache = potSum(items);
@@ -724,7 +727,18 @@ export class Game {
     return this.powerDelta(() => { const a = P.active; P.active = id; d.enh++; return () => { d.enh--; P.active = a; }; });
   }
 
+  // ---------- 장비칸: 강화 · 잠재능력 (장비를 바꿔도 칸에 남음) ----------
+  slotData(sl) {
+    this.s.slots ||= {};
+    const d = (this.s.slots[sl] ||= { enh: 0 });
+    d.id = 'slot:' + sl;
+    d.slot = sl;
+    d.lvl = Math.max(1, this.s.maxStage || 1);
+    return d;
+  }
+
   findItem(id) {
+    if (typeof id === 'string' && id.startsWith('slot:')) return SLOT_IDS.includes(id.slice(5)) ? this.slotData(id.slice(5)) : undefined;
     if (typeof id === 'string' && id.startsWith('pet:')) {
       const pid = id.slice(4);
       return this.s.world.pets.owned.includes(pid) ? this.petData(pid) : undefined;

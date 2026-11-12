@@ -5,7 +5,7 @@ import { WEAPONS, potValue } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export function newState() {
   return {
@@ -50,9 +50,28 @@ function migrate(obj) {
   if (obj.v < 3) obj = migrateV2(obj);
   if (obj.v < 4) obj = migrateV3(obj);
   if (obj.v < 5) obj = migrateV4(obj);
+  if (obj.v < 6) obj = migrateV5(obj);
   return obj;
 }
 // v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
+// v5(장비별 강화 · 잠재능력) → v6(장비칸 강화 · 잠재능력): 착용 장비의 것을 그 칸으로 옮김, 가방 장비의 것은 사라짐
+const SLOT_KEYS = ['enh', 'pot', 'potNew', 'pity', 'potLock'];
+function migrateV5(obj) {
+  const o = { ...obj, v: 6 };
+  o.slots = {};
+  for (const [sl, it] of Object.entries(o.equip || {})) {
+    if (!it) continue;
+    const d = { enh: it.enh || 0 };
+    for (const k of SLOT_KEYS.slice(1)) if (it[k] !== undefined) d[k] = it[k];
+    o.slots[sl] = d;
+  }
+  for (const it of [...Object.values(o.equip || {}), ...(o.inv || [])]) {
+    if (!it) continue;
+    it.enh = 0;
+    for (const k of SLOT_KEYS.slice(1)) delete it[k];
+  }
+  return o;
+}
 // v4(잠재능력 4등급) → v5(21등급): 레어 · 에픽 · 유니크 · 레전드리 → 희귀 · 영웅 · 전설 · 신화, 수치는 새 표로
 function migrateV4(obj) {
   const o = { ...obj, v: 5 };
