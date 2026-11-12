@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.aetherexpedition",
+  "appName": "에테르 원정기",
+  "webDir": "www",
+  "backgroundColor": "#151225",
+  "android": { "allowMixedContent": false },
+  "ios": { "contentInset": "always" }
+}

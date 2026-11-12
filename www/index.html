@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#151225">
+  <meta name="description" content="에테르 원정기 - 브라우저와 모바일에서 즐기는 방치형 RPG">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="에테르 원정기">
+  <title>에테르 원정기</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="hud">
+      <div class="res gold"><span>🪙</span><b id="gold">0</b></div>
+      <div class="res ess"><span>🔮</span><b id="essence">0</b></div>
+      <div class="res dps"><span>DPS</span><b id="dps">0</b></div>
+    </header>
+
+    <section class="stagebar">
+      <div class="stage-info">
+        <div class="stage-title"><b id="stageName">스테이지 1</b><span id="zoneName"></span></div>
+        <div class="progress"><div id="progFill"></div><span id="progText"></span></div>
+      </div>
+      <button id="bossBtn" class="btn small">👑 보스 도전</button>
+    </section>
+
+    <div class="battle"><canvas id="cv" aria-label="전투 화면 - 탭하여 공격"></canvas><div id="toasts"></div></div>
+
+    <div class="skills" id="skills"></div>
+
+    <main id="panel"></main>
+
+    <nav class="tabs">
+      <button data-tab="hero"><span>🧙</span>영웅</button>
+      <button data-tab="comp"><span>👥</span>동료</button>
+      <button data-tab="gear"><span>🎒</span>장비</button>
+      <button data-tab="relic"><span>🔮</span>환생</button>
+      <button data-tab="more"><span>⚙️</span>기타</button>
+    </nav>
+  </div>
+
+  <div id="modal" class="hidden"><div class="modal-box" id="modalBox"></div></div>
+
+  <noscript>이 게임은 JavaScript가 필요합니다.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

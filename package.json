@@ -1,0 +1,15 @@
+{
+  "name": "aether-expedition",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Pages로 배포되는 방치형 RPG 웹게임 (PWA, Capacitor로 앱 변환 가능)",
+  "scripts": {
+    "start": "npx --yes http-server www -p 8080 -c-1",
+    "sim": "node tools/sim.js",
+    "cap:init": "npm i -D @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios",
+    "cap:android": "npx cap add android && npx cap sync android && npx cap open android",
+    "cap:ios": "npx cap add ios && npx cap sync ios && npx cap open ios",
+    "cap:sync": "npx cap sync"
+  }
+}
