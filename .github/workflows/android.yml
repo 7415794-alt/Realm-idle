@@ -67,8 +67,8 @@ jobs:
           chmod +x gradlew
           # 실패하면 로그 끝부분을 오류 주석으로 남김 (로그인 없이 API로 확인 가능)
           if ! ./gradlew assembleDebug --no-daemon --console=plain > ../build.log 2>&1; then
-            grep -E "error|Error|FAILURE|What went wrong|wrong:|>" ../build.log | tail -40 | sed 's/%/%25/g' | tr '
-' '' | sed 's//%0A/g' | xargs -0 -I{} echo "::error title=gradle::{}"
+            grep -E "error|Error|FAILURE|What went wrong|wrong:|> " ../build.log | tail -40 > ../err.txt || true
+            echo "::error title=gradle::$(paste -sd~ ../err.txt)"
             tail -60 ../build.log
             exit 1
           fi
