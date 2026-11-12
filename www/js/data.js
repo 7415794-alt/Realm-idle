@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.2.0';
+export const VERSION = '3.3.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -152,16 +152,37 @@ const ZONE_MEATS = [
 ];
 ZONES.forEach((zone, z) => { zone.drops = ZONE_DROPS[z].map((d) => d[0]); zone.meat = ZONE_MEATS[z][0]; });
 
-// 박물관: 고유 전리품을 정해진 수만큼 기증하면 영구 효과. 지역 6종을 모두 채우면 세트 효과 추가
-export const MUSEUM_NEED = { normal: 100, boss: 15 };
-const MUSEUM_KEYS = [['atk', 0.02], ['def', 0.03], ['hp', 0.03], ['gold', 0.04], ['drop', 0.03], ['dmg', 0.04]];
+// 박물관: 고유 전리품을 기증해 전시 레벨을 올림 (최대 100레벨). 레벨마다 효과가 조금씩 쌓임
+// 레벨 L에 필요한 기증 수 = 기본값 x (1 + 0.15 x (L - 1)). 한 지역 6종의 가장 낮은 레벨 = 지역 세트 레벨
+export const MUSEUM_MAX = 100;
+export const MUSEUM_NEED = { normal: 20, boss: 3 };
+const MUSEUM_KEYS = [['atk', 0.003], ['def', 0.005], ['hp', 0.005], ['gold', 0.006], ['drop', 0.004], ['dmg', 0.006]];
+// 세트 레벨 1당 효과
 export const ZONE_SET_BONUS = [
-  { gather: 0.05 }, { prod: 0.05 }, { xp: 0.05 }, { crit: 0.01 }, { hp: 0.05 }, { ls: 0.005 }, { drop: 0.05 }, { dmg: 0.05 },
+  { gather: 0.01 }, { prod: 0.01 }, { xp: 0.01 }, { crit: 0.001 }, { hp: 0.01 }, { ls: 0.0005 }, { drop: 0.01 }, { dmg: 0.01 },
 ];
+export const museumLevelNeed = (base, L) => Math.round(base * (1 + 0.15 * (L - 1)));
+// 누적 기증 수 → 레벨
+export function museumLevelOf(base, count) {
+  let L = 0;
+  let need = 0;
+  while (L < MUSEUM_MAX) {
+    need += museumLevelNeed(base, L + 1);
+    if (count < need) break;
+    L++;
+  }
+  return L;
+}
+// 레벨 L까지 필요한 누적 기증 수
+export function museumCumNeed(base, L) {
+  let n = 0;
+  for (let i = 1; i <= L; i++) n += museumLevelNeed(base, i);
+  return n;
+}
 export const MUSEUM = ZONE_DROPS.flatMap((list, z) => list.map(([id], mi) => ({
   id, z, mi, boss: mi === BOSS_MI,
-  need: mi === BOSS_MI ? MUSEUM_NEED.boss : MUSEUM_NEED.normal,
-  bonus: { [MUSEUM_KEYS[mi][0]]: MUSEUM_KEYS[mi][1] },
+  base: mi === BOSS_MI ? MUSEUM_NEED.boss : MUSEUM_NEED.normal,
+  bonus: { [MUSEUM_KEYS[mi][0]]: MUSEUM_KEYS[mi][1] }, // 레벨 1당
 })));
 
 // 창고 재료 정의 (life.js MATS에 합쳐짐)

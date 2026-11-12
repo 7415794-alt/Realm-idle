@@ -25,7 +25,7 @@ export function newState() {
     inv: [],
     nextId: 3,
     autoSkill: false,
-    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true },
+    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true, autoCombine: false },
     life: newLifeState(),
     world: newWorldState(),
     stats: {

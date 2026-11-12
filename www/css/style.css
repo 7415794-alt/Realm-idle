@@ -533,3 +533,12 @@ textarea.code {
 .mrow .mn small { opacity: .7; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mrow .mgo { font-size: 12px; opacity: .8; white-space: nowrap; }
 .mrow.on .mgo { color: var(--good); opacity: 1; font-weight: 700; }
+
+/* ---- 박물관 레벨 · 장비 조합 ---- */
+.museumrow .bbtns { display: flex; flex-direction: column; gap: 4px; }
+.museumrow .lbar { height: 5px; margin-top: 5px; }
+.combinecard { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.combinecard .muted { font-size: 12px; margin-top: 2px; }
+.combinecard.on { border-color: var(--good); }
+.combinecard.on b { color: var(--good); }
+.combinecard .btn { white-space: nowrap; }

@@ -1,5 +1,8 @@
 // 모험 시스템: 날씨 · 펫 · 스킬 보스 · 퀘스트 · 박물관 (DOM 없음)
-import { goldPerKill, RARITIES, DROP_SLOTS, LOOT_POOLS, itemName, MUSEUM, ZONE_SET_BONUS, ZONES } from './data.js';
+import {
+  goldPerKill, RARITIES, DROP_SLOTS, LOOT_POOLS, itemName, MUSEUM, ZONE_SET_BONUS, ZONES,
+  MUSEUM_MAX, museumLevelOf, museumLevelNeed, museumCumNeed,
+} from './data.js';
 import { fmt } from './format.js';
 import { lifeLevel, toolInfo, prayerBonus, bankAdd, LIFE, LIFE_SKILLS, MATS } from './life.js';
 
@@ -229,11 +232,20 @@ export function rollSeasonPet(game) {
 }
 
 // ---------- 박물관 ----------
-// 몬스터 고유 전리품을 정해진 수만큼 기증하면 영구 효과. 한 지역 6종을 모두 채우면 세트 효과
+// 고유 전리품을 기증할수록 전시 레벨이 오르고(최대 MUSEUM_MAX), 레벨마다 효과가 쌓임.
+// 한 지역 6종의 가장 낮은 레벨 = 세트 레벨 → 세트 효과도 레벨만큼 쌓임
 export const MUSEUM_BY = Object.fromEntries(MUSEUM.map((e) => [e.id, e]));
 export const museumCount = (s, id) => s.world.museum[id] || 0;
-export const museumDone = (s, e) => museumCount(s, e.id) >= e.need;
-export const zoneSetDone = (s, z) => MUSEUM.every((e) => e.z !== z || museumDone(s, e));
+export const museumLevel = (s, e) => museumLevelOf(e.base, museumCount(s, e.id));
+export const museumMaxed = (s, e) => museumLevel(s, e) >= MUSEUM_MAX;
+// 다음 레벨까지 { 지금 레벨 안에서 채운 수, 필요 수 }
+export function museumNext(s, e) {
+  const L = museumLevel(s, e);
+  if (L >= MUSEUM_MAX) return null;
+  return { have: museumCount(s, e.id) - museumCumNeed(e.base, L), need: museumLevelNeed(e.base, L + 1) };
+}
+export const zoneSetLevel = (s, z) => Math.min(...MUSEUM.filter((e) => e.z === z).map((e) => museumLevel(s, e)));
+const scale = (b, n) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v * n]));
 // 효과 합 (기증할 때만 다시 계산)
 let mCache = null;
 let mCacheS = null;
@@ -242,28 +254,36 @@ function museumBonus(s, key) {
     mCache = {};
     mCacheS = s;
     const add = (b) => { for (const [k, v] of Object.entries(b)) mCache[k] = (mCache[k] || 0) + v; };
-    for (const e of MUSEUM) if (museumDone(s, e)) add(e.bonus);
-    ZONE_SET_BONUS.forEach((b, z) => { if (zoneSetDone(s, z)) add(b); });
+    for (const e of MUSEUM) { const L = museumLevel(s, e); if (L) add(scale(e.bonus, L)); }
+    ZONE_SET_BONUS.forEach((b, z) => { const L = zoneSetLevel(s, z); if (L) add(scale(b, L)); });
   }
   return mCache[key] || 0;
 }
 export function museumTotals(s) { museumBonus(s, 'x'); return { ...mCache }; }
-export function donate(game, id) {
+export const museumScale = scale;
+// mode: 'next' 다음 레벨까지만 · 'all' 보유분 전부(최대 레벨까지)
+export function donate(game, id, mode = 'all') {
   const s = game.s;
   const e = MUSEUM_BY[id];
   if (!e) return 0;
-  const n = Math.min(s.life.bank[id] || 0, e.need - museumCount(s, id));
+  const L = museumLevel(s, e);
+  if (L >= MUSEUM_MAX) return 0;
+  const cap = mode === 'next' ? museumCumNeed(e.base, L + 1) : museumCumNeed(e.base, MUSEUM_MAX);
+  const n = Math.min(s.life.bank[id] || 0, cap - museumCount(s, id));
   if (n <= 0) return 0;
-  const setBefore = zoneSetDone(s, e.z);
+  const setBefore = zoneSetLevel(s, e.z);
   bankAdd(s, id, -n);
   s.world.museum[id] = museumCount(s, id) + n;
   mCache = null;
   game.dirtyStats();
-  if (museumDone(s, e)) game.toast(`박물관 전시 완성! ${MATS[id].icon} ${MATS[id].name} · ${bonusText(e.bonus)}`, 'epic');
-  if (!setBefore && zoneSetDone(s, e.z)) game.toast(`🏛️ ${ZONES[e.z].name} 세트 완성! ${bonusText(ZONE_SET_BONUS[e.z])}`, 'legend');
+  const L2 = museumLevel(s, e);
+  if (L2 > L) game.toast(`🏛️ ${MATS[id].icon} ${MATS[id].name} 전시 Lv ${L2} · ${bonusText(scale(e.bonus, L2))}`, L2 % 10 === 0 ? 'legend' : 'epic');
+  const setAfter = zoneSetLevel(s, e.z);
+  if (setAfter > setBefore) game.toast(`🏆 ${ZONES[e.z].name} 세트 Lv ${setAfter}! ${bonusText(scale(ZONE_SET_BONUS[e.z], setAfter))}`, 'legend');
   return n;
 }
-export const museumProgress = (s) => MUSEUM.filter((e) => museumDone(s, e)).length;
+// 전시 레벨 총합
+export const museumProgress = (s) => MUSEUM.reduce((n, e) => n + museumLevel(s, e), 0);
 
 // 펫 + 날씨 + 계절 + 박물관 효과 합
 export function worldBonus(s, key) {

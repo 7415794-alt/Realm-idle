@@ -1,6 +1,6 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_NEED, ZONE_SET_BONUS,
+  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
@@ -15,10 +15,11 @@ import {
   climate, bonusText, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
   SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
   CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
-  museumTotals, museumProgress, museumCount, museumDone, zoneSetDone, donate, MUSEUM_BY,
+  museumTotals, museumProgress, museumLevel, museumNext, museumScale, zoneSetLevel, donate,
 } from './world.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+const isRingSlot = (slot) => slot === 'ring1' || slot === 'ring2';
 
 // 재료 사용처 (생활 스킬 레시피 · 도구 · 박물관)
 let USES = null;
@@ -401,6 +402,17 @@ export class UI {
   tabGear(panel) {
     const g = this.game;
     const s = g.s;
+    // 가방 / 조합 창 전환
+    this.gearView ||= 'bag';
+    const seg = h('div', 'buybar');
+    for (const [v, label] of [['bag', `🎒 가방 (${s.inv.length})`], ['combine', '⚒️ 장비 조합']]) {
+      const b = h('button', this.gearView === v ? 'on' : '', label);
+      b.addEventListener('click', () => { this.gearView = v; this.showTab('gear', true); });
+      seg.appendChild(b);
+    }
+    panel.appendChild(seg);
+    panel.appendChild(this.autoCombineCard());
+    if (this.gearView === 'combine') { this.gearCombine(panel); return; }
     const opts = h('div', 'card opts');
     const sellOpts = ['끄기', ...RARITIES.slice(1, 9).map((r, i) => `${RARITIES[i].name} 이하`)];
     opts.innerHTML = `
@@ -430,6 +442,61 @@ export class UI {
     if (!s.inv.length) panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다'));
     const sorted = [...s.inv].sort((a, b) => g.upgradeGain(b) - g.upgradeGain(a));
     for (const it of sorted) panel.appendChild(this.itemCard(it, false));
+  }
+
+  // 자동 조합 온/오프
+  autoCombineCard() {
+    const g = this.game;
+    const s = g.s;
+    const on = !!s.settings.autoCombine;
+    const card = h('div', 'card combinecard' + (on ? ' on' : ''), `
+      <div><b>⚒️ 자동 조합 ${on ? 'ON' : 'OFF'}</b><div class="muted">같은 부위 · 같은 등급 3개가 모이면 바로 한 단계 위 등급으로 조합 (강화한 장비는 제외)</div></div>
+      <button class="btn ${on ? '' : 'primary'} cbtn">${on ? '끄기' : '켜기'}</button>`);
+    $('.cbtn', card).addEventListener('click', () => {
+      g.toggleAutoCombine();
+      this.toast(`자동 조합 ${s.settings.autoCombine ? '켜짐' : '꺼짐'}`, 'good');
+      this.showTab('gear', true);
+    });
+    return card;
+  }
+
+  // 장비 조합 창: 같은 부위 · 같은 등급 3개 → 한 단계 높은 등급 1개
+  gearCombine(panel) {
+    const g = this.game;
+    const s = g.s;
+    panel.appendChild(h('div', 'muted pad', '가방에 있는 같은 부위 · 같은 등급 장비 3개를 합쳐 한 단계 높은 등급 장비 1개를 만듭니다. 셋 중 가장 좋은 장비의 종류 · 성향과 가장 높은 레벨 · 강화 수치를 이어받습니다. 장착 중인 장비는 쓰지 않습니다.'));
+    const groups = g.combineGroups(false);
+    const keys = Object.keys(groups).sort((a, b) => (+b.split('/')[1] - +a.split('/')[1]) || (groups[b].length - groups[a].length));
+    const ready = keys.filter((k) => groups[k].length >= 3);
+    const head = h('div', 'section-title', `조합 가능 ${ready.length}종`);
+    const all = h('button', 'btn small primary', '모두 조합');
+    setDisabled(all, !ready.length);
+    all.addEventListener('click', () => {
+      const n = g.combineAll(false);
+      if (n) this.toast(`${n}번 조합했습니다`, 'good');
+      this.showTab('gear', true);
+    });
+    head.appendChild(all);
+    panel.appendChild(head);
+    if (!keys.length) { panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다')); return; }
+    for (const k of keys) {
+      const list = groups[k];
+      const [slot, r] = [k.split('/')[0], +k.split('/')[1]];
+      const n = list.length;
+      const row = h('div', 'row bankrow', `
+        <div class="ricon">${SLOTS[slot].icon}</div>
+        <div class="rinfo"><div class="rtitle"><span class="rname"><span style="color:${RARITIES[r].color}">${RARITIES[r].name}</span> ${isRingSlot(slot) ? '반지' : SLOTS[slot].name}</span><span class="rlv">${n} / 3</span></div>
+          <div class="rdesc">→ <span style="color:${RARITIES[r + 1].color}">${RARITIES[r + 1].name}</span> 1개${n >= 3 ? ` (${Math.floor(n / 3)}번 가능)` : ` · ${3 - n}개 더 필요`} · ${list.map((x) => itemName(x)).slice(0, 3).join(', ')}${n > 3 ? ' 외' : ''}</div></div>
+        <div class="bbtns"><button class="btn small primary">조합</button></div>`);
+      const b = $('button', row);
+      setDisabled(b, n < 3);
+      b.addEventListener('click', () => {
+        const it = g.combineOne(k, false);
+        if (it) this.toast(`조합: [${RARITIES[it.r].name}] ${itemName(it)}`, it.r >= 5 ? 'epic' : 'good');
+        this.showTab('gear', true);
+      });
+      panel.appendChild(row);
+    }
   }
 
   // ---------- 생활 스킬 ----------
@@ -752,41 +819,50 @@ export class UI {
     const s = g.s;
     const tot = museumTotals(s);
     const sum = Object.keys(tot).length ? bonusText(tot) : '아직 없음';
-    panel.appendChild(h('div', 'card note', `🏛️ 전시 완성 ${museumProgress(s)} / ${MUSEUM.length} · 지금 효과: ${sum}`));
-    panel.appendChild(h('div', 'muted pad', `몬스터 고유 전리품을 기증하세요. 일반 몬스터 것은 ${MUSEUM_NEED.normal}개, 보스 것은 ${MUSEUM_NEED.boss}개를 채우면 영구 효과를 받고, 한 지역 6종을 모두 채우면 세트 효과가 추가됩니다.`));
+    panel.appendChild(h('div', 'card note', `🏛️ 전시 레벨 합계 ${fmt(museumProgress(s))} / ${fmt(MUSEUM.length * MUSEUM_MAX)} · 지금 효과: ${sum}`));
+    panel.appendChild(h('div', 'muted pad', `몬스터 고유 전리품을 기증해 전시 레벨을 올리세요 (종류마다 최대 Lv ${MUSEUM_MAX}). 레벨마다 효과가 조금씩 쌓이고, 다음 레벨일수록 더 많이 필요합니다. 한 지역 6종 중 가장 낮은 레벨이 그 지역의 세트 레벨이 되어 세트 효과도 레벨만큼 쌓입니다.`));
     this.museumOpen ||= { 0: true };
     ZONES.forEach((zone, z) => {
       const box = h('details', 'petgroup');
       box.open = !!this.museumOpen[z];
       box.addEventListener('toggle', () => { this.museumOpen[z] = box.open; });
       const list = MUSEUM.filter((e) => e.z === z);
-      const sum = h('summary', '', '');
-      box.appendChild(sum);
-      const setLine = h('div', 'muted lnote', `세트 효과: ${bonusText(ZONE_SET_BONUS[z])}`);
+      const sumEl = h('summary', '', '');
+      box.appendChild(sumEl);
+      const setLine = h('div', 'muted lnote', '');
       box.appendChild(setLine);
       for (const e of list) {
         const m = MATS[e.id];
         const info = monsterInfo(z, e.mi);
-        const row = h('div', 'row bankrow', `
+        const row = h('div', 'row bankrow museumrow', `
           <div class="ricon">${m.icon}</div>
           <div class="rinfo"><div class="rtitle"><span class="rname">${m.name}</span><span class="rlv"></span></div>
-            <div class="rdesc">${info.e} ${info.name} · ${bonusText(e.bonus)}</div></div>
-          <div class="bbtns"><button class="btn small primary">기증</button></div>`);
+            <div class="rdesc"></div><div class="lbar"><div></div></div></div>
+          <div class="bbtns"><button class="btn small primary">+1 Lv</button><button class="btn small">전부</button></div>`);
         const cnt = $('.rlv', row);
-        const btn = $('button', row);
-        btn.addEventListener('click', () => { const n = donate(g, e.id); if (n > 0) { this.toast(`${m.name} ${fmt(n)}개 기증`, 'good'); this.advDirty = true; } });
+        const desc = $('.rdesc', row);
+        const bar = $('.lbar div', row);
+        const [b1, b2] = row.querySelectorAll('button');
+        const go = (mode) => { const n = donate(g, e.id, mode); if (n > 0) { this.toast(`${m.name} ${fmt(n)}개 기증`, 'good'); this.advDirty = true; } };
+        b1.addEventListener('click', () => go('next'));
+        b2.addEventListener('click', () => go('all'));
         box.appendChild(row);
         this.updaters.push(() => {
-          const c = museumCount(s, e.id);
-          const done = c >= e.need;
-          setText(cnt, done ? '✅ 완성' : `${fmt(c)} / ${e.need} (보유 ${fmt(s.life.bank[e.id] || 0)})`);
-          setDisabled(btn, done || !(s.life.bank[e.id] > 0));
-          setText(btn, done ? '완성' : '기증');
+          const L = museumLevel(s, e);
+          const nx = museumNext(s, e);
+          const have = s.life.bank[e.id] || 0;
+          setText(cnt, `Lv ${L}${L >= MUSEUM_MAX ? ' (최대)' : ''}`);
+          setText(desc, `${info.e} ${info.name} · 지금 ${L ? bonusText(museumScale(e.bonus, L)) : '효과 없음'} · 레벨당 ${bonusText(e.bonus)}`
+            + (nx ? ` · 다음 레벨 ${fmt(nx.have)} / ${fmt(nx.need)} (보유 ${fmt(have)})` : ''));
+          bar.style.width = (nx ? (nx.have / nx.need) * 100 : 100) + '%';
+          setDisabled(b1, !nx || have <= 0);
+          setDisabled(b2, !nx || have <= 0);
         });
       }
       this.updaters.push(() => {
-        const done = list.filter((e) => museumDone(s, e)).length;
-        setText(sum, `${zoneSetDone(s, z) ? '🏆' : zone.monsters[0][0]} ${zone.name} · ${done} / ${list.length}`);
+        const L = zoneSetLevel(s, z);
+        setText(sumEl, `${L ? '🏆' : zone.monsters[0][0]} ${zone.name} · 세트 Lv ${L} · 전시 합계 ${list.reduce((n, e) => n + museumLevel(s, e), 0)}`);
+        setText(setLine, `세트 효과 (레벨당 ${bonusText(ZONE_SET_BONUS[z])}) · 지금 ${L ? bonusText(museumScale(ZONE_SET_BONUS[z], L)) : '없음'}`);
       });
       panel.appendChild(box);
     });
@@ -1010,7 +1086,7 @@ export class UI {
       ['쓰러진 횟수', () => fmt(s.stats.deaths || 0)],
       ['최고 등급', () => RARITIES[s.stats.bestRarity || 0].name],
       ['역대 최고', () => `처치 Lv ${s.maxStage} · 지역 ${s.maxZone + 1}곳 개방`],
-      ['박물관', () => `${museumProgress(s)} / ${MUSEUM.length}`],
+      ['박물관 전시 레벨', () => `${fmt(museumProgress(s))} / ${fmt(MUSEUM.length * MUSEUM_MAX)}`],
     ];
     const vals = rows.map(([label]) => {
       const it = h('div', 'stat', `<span>${label}</span><b></b>`);

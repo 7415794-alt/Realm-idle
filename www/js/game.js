@@ -380,8 +380,10 @@ export class Game {
       const k = keys[Math.floor(Math.random() * keys.length)];
       item.sp = { [k]: SPECIALS[k] * (0.7 + Math.random() * 0.6) };
     }
-    s.stats.items++;
-    questEvent(s, 'item', 1);
+    if (!spec.noCount) {
+      s.stats.items++;
+      questEvent(s, 'item', 1);
+    }
     if (r > (s.stats.bestRarity || 0)) s.stats.bestRarity = r;
     return item;
   }
@@ -445,12 +447,15 @@ export class Game {
     return itemScore(item, sty) - itemScore(eq[this.targetSlot(item)], sty);
   }
 
-  giveItem(item) {
+  // keep: 조합 결과물(자동 판매하지 않음)
+  giveItem(item, keep = false) {
     // 다른 전투 방식의 무기는 자동 장착하지 않음 (직접 바꾸기)
     const otherStyle = item.slot === 'weapon' && this.s.equip.weapon && itemStyle(item) !== this.style();
     if (this.s.settings.autoEquip && !otherStyle && this.upgradeGain(item) > 0) this.putOn(item);
-    else this.stash(item);
+    else this.stash(item, keep);
     this.rt.invDirty = true;
+    // 자동 조합: 가방에 같은 부위 · 등급이 3개 모이면 바로 조합
+    if (this.s.settings.autoCombine && !this.rt.combining) this.combineAll(true);
   }
 
   putOn(item) {
@@ -535,6 +540,57 @@ export class Game {
     this.dirtyStats();
     this.rt.invDirty = true;
     return true;
+  }
+
+  // ---------- 장비 조합 ----------
+  // 가방 속 같은 부위 · 같은 등급 장비 3개 → 한 단계 높은 등급 1개
+  // 결과: 셋 중 가장 좋은 장비의 종류 · 성향, 가장 높은 레벨과 강화 수치를 이어받음
+  combineKey(it) { return `${isRing(it.slot) ? 'ring1' : it.slot}/${it.r}`; }
+  combineGroups(auto = false) {
+    const groups = {};
+    for (const it of this.s.inv) {
+      if (it.r >= RARITIES.length - 1) continue;
+      if (auto && it.enh > 0) continue; // 자동 조합은 강화한 장비를 쓰지 않음
+      (groups[this.combineKey(it)] ||= []).push(it);
+    }
+    return groups;
+  }
+  combineOne(key, auto = false) {
+    const s = this.s;
+    const list = this.combineGroups(auto)[key];
+    if (!list || list.length < 3) return null;
+    const sty = this.style();
+    // 강화 안 한 것 · 약한 것부터 재료로 사용
+    const use = [...list].sort((a, b) => (a.enh - b.enh) || (itemScore(a, sty) - itemScore(b, sty))).slice(0, 3);
+    const best = use.reduce((a, b) => (itemScore(b, sty) > itemScore(a, sty) ? b : a));
+    const ids = new Set(use.map((x) => x.id));
+    s.inv = s.inv.filter((x) => !ids.has(x.id));
+    const slot = isRing(best.slot) ? 'ring1' : best.slot;
+    const item = this.newItem(slot, best.r + 1, Math.max(...use.map((x) => x.lvl)), { kind: best.kind, aff: best.aff, noCount: true });
+    item.enh = Math.max(...use.map((x) => x.enh || 0));
+    s.stats.combines = (s.stats.combines || 0) + 1;
+    if (item.r > (s.stats.bestRarity || 0)) s.stats.bestRarity = item.r;
+    if (item.r >= 5) this.toast(`조합 성공! [${RARITIES[item.r].name}] ${itemName(item)}`, item.r >= 7 ? 'legend' : 'epic');
+    this.rt.combining = true;
+    this.giveItem(item, true);
+    this.rt.combining = false;
+    this.rt.invDirty = true;
+    return item;
+  }
+  // 조합할 수 있는 만큼 반복 (낮은 등급부터 → 연쇄 조합)
+  combineAll(auto = false) {
+    let n = 0;
+    for (let guard = 0; guard < 500; guard++) {
+      const groups = this.combineGroups(auto);
+      const key = Object.keys(groups).filter((k) => groups[k].length >= 3).sort((a, b) => +a.split('/')[1] - +b.split('/')[1])[0];
+      if (!key || !this.combineOne(key, auto)) break;
+      n++;
+    }
+    return n;
+  }
+  toggleAutoCombine() {
+    this.s.settings.autoCombine = !this.s.settings.autoCombine;
+    if (this.s.settings.autoCombine) this.combineAll(true);
   }
 
   // ---------- 오프라인 ----------
