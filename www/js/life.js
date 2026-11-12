@@ -237,6 +237,13 @@ const TROPHY = [
   ['초원 수렵 장비', 5, 1], ['늪지 사냥 장비', 15, 1], ['협곡 전사 장비', 25, 2], ['화산 정복 장비', 35, 2],
   ['빙하 원정 장비', 45, 3], ['망령 사냥 장비', 55, 3], ['폭풍 추적 장비', 65, 4], ['심연 탐험 장비', 78, 5],
 ];
+const BOWYER = [
+  ['oak', '참나무', 3, 0, {}], ['birch', '자작나무', 10, 0, { mon_feather: 2 }], ['pine', '소나무', 17, 1, { mon_feather: 3 }],
+  ['aspen', '사시나무', 24, 1, { mon_web: 2 }], ['maple', '단풍나무', 32, 1, { mon_horn: 2 }], ['cedar', '삼나무', 40, 2, { mon_scale: 2 }],
+  ['ebony', '흑단', 47, 2, { mon_shadow: 2 }], ['yew', '주목', 57, 3, { mon_ecto: 3 }], ['frost', '서리나무', 70, 4, { mon_ice: 4 }],
+  ['world', '세계수', 84, 5, { mon_storm: 3, gem_diamond: 1 }],
+];
+const WOOD_KINDS = ['xbow', 'bow', 'wand', 'staff'];
 const trophyIn = (z) => Object.fromEntries(ZONES[z].drops.map((id, mi) => [id, mi === BOSS_MI ? 1 : 4]));
 const xpAt = (lvl) => Math.round(7 + lvl * 1.1 + Math.pow(lvl, 1.6) / 6);
 
@@ -307,7 +314,7 @@ export const LIFE_SKILLS = [
     ],
   },
   {
-    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목 · 몬스터 전리품 · 주괴 · 보석으로 장갑 · 목걸이 · 반지 · 망토 · 보조장비를 만듭니다. 지금 전투 방식에 맞는 성향으로 만들어지고, 단계마다 최소 등급이 보장됩니다.',
+    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목을 깎아 활 · 지팡이를 만들고, 원목 · 몬스터 전리품 · 주괴 · 보석으로 장갑 · 목걸이 · 반지 · 망토 · 보조장비를 만듭니다. 지금 전투 방식에 맞는 성향으로 만들어지고, 단계마다 최소 등급이 보장됩니다.',
     actions: [
       { id: 'acc0', name: '참나무 공예', icon: '📿', lvl: 1, time: 4, xp: 20, in: { log_oak: 5 }, equip: { slots: CRAFT_SLOTS, r: 0 } },
       { id: 'acc1', name: '가죽 공예', icon: '🧤', lvl: 10, time: 4.5, xp: 35, in: { mon_hide: 3, log_birch: 4 }, equip: { slots: CRAFT_SLOTS, r: 0 } },
@@ -318,6 +325,12 @@ export const LIFE_SKILLS = [
       { id: 'acc6', name: '영혼 직조', icon: '👻', lvl: 55, time: 6.5, xp: 190, in: { mon_ecto: 4, mon_cloth: 4, bar_titan: 2 }, equip: { slots: CRAFT_SLOTS, r: 3 } },
       { id: 'acc7', name: '흑진주 세공', icon: '📿', lvl: 68, time: 7, xp: 280, in: { mon_pearl: 4, bar_adamant: 2, gem_ruby: 1 }, equip: { slots: CRAFT_SLOTS, r: 4 } },
       { id: 'acc8', name: '세계수 인장', icon: '💍', lvl: 82, time: 8, xp: 450, in: { log_world: 5, bar_aether: 2, gem_diamond: 1 }, equip: { slots: CRAFT_SLOTS, r: 5 } },
+      ...BOWYER.map(([id, name, lvl, r, more], i) => ({
+        id: 'bow_' + id, ...(i ? {} : { group: '활 · 지팡이 깎기 (원목 → 원거리 · 마법 무기)' }), name: `${name} 활 · 지팡이`, icon: '🏹', lvl, time: 5 + i * 0.3,
+        xp: Math.round(xpAt(lvl) * 3), in: { ['log_' + id]: 8, ...more }, equip: { slots: ['weapon'], r, kinds: WOOD_KINDS },
+      })),
+      { id: 'claw', group: '몬스터 재료 공예', name: '맹수 발톱 장갑', icon: '🧤', lvl: 28, time: 5, xp: 80, in: { mon_claw: 4, mon_hide: 3, bar_gold: 1 }, equip: { slots: ['gloves'], r: 1 } },
+      { id: 'icecape', name: '서리 결정 망토', icon: '🧣', lvl: 50, time: 6, xp: 150, in: { mon_ice: 5, mon_cloth: 3, bar_titan: 1 }, equip: { slots: ['cape'], r: 2 } },
       ...TROPHY.map(([name, lvl, r], z) => ({
         id: 'trophy' + z, ...(z ? {} : { group: '전리품 공예 (특수 옵션 보장)' }), name, icon: ZONES[z].boss[0], lvl, time: 6 + z * 0.5, xp: Math.round(xpAt(lvl) * 4),
         in: trophyIn(z), equip: { slots: DROP_SLOTS, r, sp: true },
@@ -337,7 +350,10 @@ export const LIFE_SKILLS = [
       { id: 'hp2', name: '거인의 물약 (뿔)', icon: '🧪', lvl: 52, time: 4.5, xp: 95, in: { herb_rare: 1, mon_horn: 3 }, out: { pot_hp: 2 } },
       { id: 'all', name: '만능 물약', icon: '🍷', lvl: 65, time: 6, xp: 180, in: { herb_rare: 2, rune_earth: 2, gem: 1 }, out: { pot_all: 1 } },
       { id: 'all2', name: '만능 물약 (심연 먹물)', icon: '🍷', lvl: 78, time: 6, xp: 240, in: { herb_rare: 2, mon_ink: 2, mon_shadow: 2 }, out: { pot_all: 2 } },
-      { id: 'def', group: '전리품 물약', name: '철피의 물약', icon: '🧪', lvl: 10, time: 3, xp: 22, in: { herb: 2, u_shell: 2 }, out: { pot_def: 1 } },
+      { id: 'hp4', group: '전리품 물약', name: '거인의 물약 (점액)', icon: '🧪', lvl: 14, time: 3.5, xp: 26, in: { herb: 1, mon_slime: 3 }, out: { pot_hp: 1 } },
+      { id: 'atk4', name: '힘의 물약 (독주머니)', icon: '🧪', lvl: 26, time: 3, xp: 40, in: { herb: 1, mon_venom: 2 }, out: { pot_atk: 2 } },
+      { id: 'def3', name: '철피의 물약 (서리 결정)', icon: '🧪', lvl: 42, time: 4, xp: 70, in: { herb: 2, mon_ice: 2 }, out: { pot_def: 2 } },
+      { id: 'def', name: '철피의 물약', icon: '🧪', lvl: 10, time: 3, xp: 22, in: { herb: 2, u_shell: 2 }, out: { pot_def: 1 } },
       { id: 'drop', name: '탐색의 물약', icon: '🧪', lvl: 18, time: 3.5, xp: 32, in: { herb: 3, u_rattail: 3 }, out: { pot_drop: 1 } },
       { id: 'atk3', name: '힘의 물약 (피주머니)', icon: '🧪', lvl: 22, time: 3, xp: 34, in: { herb: 1, u_bloodsac: 2 }, out: { pot_atk: 2 } },
       { id: 'def2', name: '철피의 물약 (이끼 등껍질)', icon: '🧪', lvl: 33, time: 3.5, xp: 52, in: { herb: 2, u_moss: 1, u_crabshell: 1 }, out: { pot_def: 2 } },
@@ -621,7 +637,7 @@ function completeAction(game, skillId, act, log) {
   applyPerks(game, skillId, act, log);
   if (act.equip) {
     for (let i = 0; i < times; i++) {
-      const item = game.craftItem(act.equip.slots, act.equip.r, !log, !!act.equip.sp);
+      const item = game.craftItem(act.equip.slots, act.equip.r, !log, !!act.equip.sp, act.equip.kinds);
       if (log) log.equips.push(item);
     }
   }
@@ -672,6 +688,17 @@ export function lifeUpdate(game, dt, log = null) {
 export function newLifeLog() {
   return { xp: {}, levels: {}, items: {}, equips: [], gold: 0, fails: 0, burned: 0, stopped: false };
 }
+
+// 창고에서 회복량이 가장 큰 음식 id
+export function bestFood(s) {
+  let best = null;
+  for (const id of Object.keys(s.life.bank)) {
+    const m = MATS[id];
+    if (m?.heal && s.life.bank[id] > 0 && (!best || m.heal > MATS[best].heal)) best = id;
+  }
+  return best;
+}
+export const foodCount = (s) => Object.keys(s.life.bank).reduce((n, id) => n + (MATS[id]?.heal ? s.life.bank[id] : 0), 0);
 
 // 음식: 체력이 낮으면 가장 회복량이 큰 음식부터 먹음
 export function autoEat(game) {

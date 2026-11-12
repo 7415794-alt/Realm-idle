@@ -398,10 +398,17 @@ export class Game {
 
   // 생활 스킬(대장기술·제작)로 만든 장비: 역대 최고 스테이지 레벨, 최소 등급 보장, 성향은 지금 전투 방식
   // sp: 특수 옵션 보장 (전리품 공예)
-  craftItem(slots, floor, notify = true, sp = false) {
+  // kinds: 무기 종류 제한 (활 · 지팡이 깎기 등) → 지금 전투 방식에 맞는 종류 우선
+  craftItem(slots, floor, notify = true, sp = false, kinds = null) {
     const slot = slots[Math.floor(Math.random() * slots.length)];
     const r = Math.max(floor, rollRarity(2));
-    const spec = slot === 'weapon' ? { kind: this.randomKindOfStyle(), sp } : { aff: this.style(), sp };
+    let kind = null;
+    if (slot === 'weapon') {
+      const mine = kinds ? kinds.filter((k) => WEAPONS[k].style === this.style()) : null;
+      const pool = kinds ? (mine.length ? mine : kinds) : null;
+      kind = pool ? pool[Math.floor(Math.random() * pool.length)] : this.randomKindOfStyle();
+    }
+    const spec = slot === 'weapon' ? { kind, sp } : { aff: this.style(), sp };
     const item = this.newItem(slot, r, this.s.maxStage, spec);
     questEvent(this.s, 'craft', 1);
     if (notify) this.toast(`제작 완료: [${RARITIES[r].name}] ${itemName(item)}`, r >= 6 ? 'legend' : r >= 4 ? 'epic' : 'good');

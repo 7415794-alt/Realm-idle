@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.1.0';
+export const VERSION = '3.2.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -353,32 +353,59 @@ const EQUIP_C = [0.02, 0.015, 0.012, 0.01, 0.008, 0.006, 0.004];
 export const zoneIndex = (stage) => Math.floor((Math.max(1, stage) - 1) / 10);
 
 // z: 지역 번호, mi: 몬스터 번호 (0~4 일반, 5 보스)
+// 몬스터마다 30종 안팎: 고유 전리품 · 같은 지역 전리품 · 고기 · 뼈 · 몬스터 재료 · 광석 · 원목 · 물고기 · 약초 · 룬 · 주괴 · 보석 · 음식 · 보물 상자 · 장비
+// 몬스터의 '성향'(원목 · 광석 · 물고기)에 맞는 채집물은 더 자주, 더 많이 나옴
+const BARS = ['bar_bronze', 'bar_iron', 'bar_gold', 'bar_cobalt', 'bar_mithril', 'bar_titan', 'bar_adamant', 'bar_frost', 'bar_aether'];
+const RUNES = ['rune_air', 'rune_fire', 'rune_earth', 'rune_chaos'];
 const lootCache = new Map();
+// 지역 단계에 맞는 채집물 n개 (단계 주변 · 낮은 쪽 위주)
+function tierPick(pool, z, n, rnd) {
+  const top = Math.min(pool.length - 1, Math.floor(((z % ZONES.length) + 1) * pool.length / ZONES.length));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.max(0, top - Math.floor(rnd() * Math.min(4, top + 1)));
+    if (!out.includes(pool[idx])) out.push(pool[idx]);
+  }
+  return out;
+}
 export function lootTable(z, mi = 0) {
   const key = `${z}/${mi}`;
   if (lootCache.has(key)) return lootCache.get(key);
   const zone = ZONES[z % ZONES.length];
+  const zi = z % ZONES.length;
   const boss = mi === BOSS_MI;
   const qm = boss ? 5 : 1;
+  const bc = (c, b) => (boss ? b : c);
+  const rnd = seeded(z * 131 + mi * 17 + 3);
   const L = [];
-  // 몬스터 고유 전리품 · 고기 · 뼈
-  L.push({ mat: zone.drops[mi], c: boss ? 1 : 0.2, q: boss ? [1, 2] : [1, 1] });
-  L.push({ mat: zone.meat, c: boss ? 1 : 0.15, q: [qm, qm * 2] });
-  L.push({ mat: BONES[Math.min(BONES.length - 1, Math.floor(z / 2))], c: boss ? 1 : 0.5, q: [qm, qm * 2] });
-  // 지역 재료 · 채집물 · 약초 · 룬 원석 · 보석
-  const zm = zone.mats;
-  L.push({ mat: zm[mi % zm.length], c: boss ? 1 : 0.4, q: [qm, qm * 2] });
-  L.push({ mat: zm[(mi + 1) % zm.length], c: boss ? 0.6 : 0.15, q: [qm, qm] });
-  const pool = LOOT_POOLS[['log', 'ore', 'fish'][mi % 3]];
-  L.push({ mat: pool[Math.min(pool.length - 1, Math.floor((z * pool.length) / 12))], c: boss ? 0.8 : 0.12, q: [qm, qm * 3] });
-  L.push({ mat: z >= 4 ? 'herb_rare' : 'herb', c: boss ? 0.5 : 0.05, q: [1, qm] });
-  L.push({ mat: 'rune_ess', c: boss ? 0.5 : 0.04, q: [qm, qm * 3] });
-  L.push({ mat: LOOT_POOLS.gem[Math.min(3, Math.floor(z / 2))], c: boss ? 0.1 : 0.004, q: [1, 1] });
-  // 같은 지역 이웃 몬스터의 고유 전리품 (드물게)
-  if (!boss) L.push({ mat: zone.drops[(mi + 1) % 5], c: 0.02, q: [1, 1] });
-  L.push({ mat: 'chest', c: boss ? 0.08 : 0.002, q: [1, 1] });
+  const add = (mat, c, q) => { if (!L.some((d) => d.mat === mat)) L.push({ mat, c, q }); };
+  // 고유 전리품 + 같은 지역 다른 몬스터의 전리품
+  add(zone.drops[mi], bc(0.2, 1), boss ? [1, 2] : [1, 1]);
+  for (let j = 0; j < 5; j++) if (j !== mi) add(zone.drops[j], bc(0.012, 0.3), [1, qm]);
+  // 고기 · 뼈 · 몬스터 재료
+  add(zone.meat, bc(0.15, 1), [qm, qm * 2]);
+  add(BONES[Math.min(BONES.length - 1, Math.floor((zi * 5) / 8) + Math.floor(z / ZONES.length))], bc(0.5, 1), [qm, qm * 2]);
+  zone.mats.forEach((m, j) => add(m, bc(j === mi % zone.mats.length ? 0.35 : 0.08, 0.8), [qm, qm * 2]));
+  // 채집물: 성향 3종(자주) + 나머지 각 1~2종(드물게)
+  const theme = ['log', 'ore', 'fish'][mi % 3];
+  for (const k of ['log', 'ore', 'fish']) {
+    const main = k === theme;
+    for (const m of tierPick(LOOT_POOLS[k], z, main ? 3 : 2, rnd)) add(m, bc(main ? 0.1 : 0.025, main ? 0.8 : 0.4), [qm, qm * (main ? 3 : 2)]);
+  }
+  add('coal', bc(0.04, 0.5), [qm, qm * 2]);
+  add('rune_ess', bc(0.05, 0.6), [qm, qm * 3]);
+  add('herb', bc(0.06, 0.6), [1, qm * 2]);
+  add('herb_rare', bc(zi >= 3 ? 0.03 : 0.008, 0.4), [1, qm]);
+  add(RUNES[Math.min(3, Math.floor(zi / 2))], bc(0.03, 0.5), [qm, qm * 3]);
+  add(BARS[Math.min(BARS.length - 1, zi + Math.floor(rnd() * 2))], bc(0.015, 0.3), [1, qm]);
+  // 보석 · 음식 · 물약 · 보물 상자
+  add('gem', bc(0.006, 0.2), [1, 1]);
+  add(LOOT_POOLS.gem[Math.min(3, Math.floor(zi / 2))], bc(0.004, 0.1), [1, 1]);
+  const fish = tierPick(LOOT_POOLS.fish, z, 1, rnd)[0];
+  add('food_' + fish.slice(5), bc(0.02, 0.5), [1, qm]);
+  add(['pot_atk', 'pot_def', 'pot_gold', 'pot_drop', 'pot_speed', 'pot_hp', 'pot_hp', 'pot_all'][zi], bc(0.004, 0.15), [1, 1]);
+  add('chest', bc(0.002, 0.08), [1, 1]);
   // 정해진 장비 7종
-  const rnd = seeded(z * 131 + mi * 17 + (boss ? 7 : 1));
   const picks = [...EQUIP_POOL];
   for (const c of EQUIP_C) {
     const e = picks.splice(Math.floor(rnd() * picks.length), 1)[0];

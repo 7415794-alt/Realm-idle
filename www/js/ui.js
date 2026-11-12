@@ -8,7 +8,7 @@ import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
 import {
   LIFE_SKILLS, LIFE, MATS, BUFFS, LIFE_MAX_LV, XP_TABLE, lifeLevel, actionTime, burnChance, stealChance,
-  hasInputs, matValue, startAction, stopAction, usePotion, sellMat, describeLog,
+  hasInputs, matValue, startAction, stopAction, usePotion, sellMat, describeLog, bestFood, foodCount,
   TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
 import {
@@ -288,6 +288,16 @@ export class UI {
     this.updaters.push(() => fields.forEach(([, f], i) => setText(vals[i], f())));
     const pw = h('div', 'card note power');
     panel.appendChild(pw);
+    // 음식: 낚시 → 요리 → 전투 중 자동 섭취
+    const food = h('div', 'card note');
+    panel.appendChild(food);
+    this.updaters.push(() => {
+      const id = bestFood(s);
+      const L = s.life;
+      setText(food, !L.autoEat ? '🍽️ 음식 자동 섭취 꺼짐 (생활 → 창고에서 켜기)'
+        : id ? `🍽️ 체력 40% 미만이면 자동으로 먹음 · 다음: ${MATS[id].icon} ${MATS[id].name} (회복 ${Math.round(MATS[id].heal * 100)}%) · 음식 ${fmt(foodCount(s))}개`
+          : '🍽️ 음식 없음 · 🎣 낚시나 사냥으로 얻은 물고기 · 고기를 🍳 요리하면 전투 중 자동으로 먹고 체력을 회복합니다');
+    });
     const wx = h('div', 'card note');
     panel.appendChild(wx);
     this.updaters.push(() => {
@@ -549,7 +559,7 @@ export class UI {
         const parts = [];
         if (a.in) parts.push('필요: ' + Object.entries(a.in).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
         if (a.out) parts.push('획득: ' + matList(a.out));
-        if (a.equip) parts.push(`획득: ${a.equip.slots.map((x) => SLOTS[x].name).join('/')} · <span style="color:${RARITIES[a.equip.r].color}">${RARITIES[a.equip.r].name}</span> 이상 · Lv${Math.max(1, s.maxStage)}`);
+        if (a.equip) parts.push(`획득: ${a.equip.kinds ? a.equip.kinds.map((k) => WEAPONS[k].name).join('/') : a.equip.slots.map((x) => SLOTS[x].name).join('/')} · <span style="color:${RARITIES[a.equip.r].color}">${RARITIES[a.equip.r].name}</span> 이상 · Lv${Math.max(1, s.maxStage)}`);
         if (a.gold) parts.push(`골드 약 ${fmt(a.gold * g.goldMult() * goldPerKillAt(s))}`);
         if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)}`).join(', '));
         const extra = [`XP ${fmt(actionXp(s, a))}`, `${actionTime(s, k.id, a).toFixed(1)}초 (x${speedMult(s, k.id, a).toFixed(2)})`];
