@@ -500,3 +500,19 @@ textarea.code {
 .vipcard { border: 2px solid #a78bfa; background: linear-gradient(135deg, rgba(106, 90, 42, .3), rgba(106, 58, 106, .3)); }
 .vipcard .vip-text { font-size: 16px; }
 .vipcard p { margin: 6px 0 0; font-size: 13px; }
+
+/* v3: 전투 방식 · 전리품 · 펫 도감 */
+.stylecard { line-height: 1.6; }
+.stag { font-size: 10px; padding: 1px 5px; border-radius: 999px; margin-left: 4px; font-weight: 700; }
+.stag.s-melee { background: rgba(248, 113, 113, .18); color: #fca5a5; }
+.stag.s-ranged { background: rgba(74, 222, 128, .18); color: #86efac; }
+.stag.s-magic { background: rgba(167, 139, 250, .22); color: #c4b5fd; }
+.loottable summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+.loottable .lrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.loottable .lrow b { color: var(--good); white-space: nowrap; }
+.loottable .lnote { font-size: 11px; margin-top: 6px; }
+.petgroup > summary { cursor: pointer; list-style: none; }
+.petgroup > summary::before { content: '▸ '; }
+.petgroup[open] > summary::before { content: '▾ '; }
+.petgroup > summary.section-title { justify-content: flex-start; gap: 4px; }
+.petgroup > summary::-webkit-details-marker { display: none; }

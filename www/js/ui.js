@@ -1,7 +1,7 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  SKILLS, SLOTS, SLOT_IDS, RARITIES, WEAPONS, STAGE_KILLS, BOSS_TIME, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
-  VIP, zoneOf, itemName, itemStats, itemSellPrice, enhanceCost, goldPerKill, statText, incomingHit, defEfficiency,
+  SKILLS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, STAGE_KILLS, BOSS_TIME, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
+  VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
@@ -11,7 +11,7 @@ import {
   TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
 import {
-  climate, bonusText, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
+  climate, bonusText, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
   SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
   CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
 } from './world.js';
@@ -237,20 +237,30 @@ export class UI {
     const g = this.game;
     const s = g.s;
     const card = h('div', 'card stats');
+    const sty = STYLES[g.style()];
     panel.appendChild(h('div', 'section-title', '⚔️ 능력치 (장비로 결정)'));
+    panel.appendChild(h('div', 'card note stylecard', `전투 방식: <b>${sty.icon} ${sty.name}</b> (무기로 결정)<br><span class="muted">${sty.desc}</span>`));
     panel.appendChild(card);
     const mon = () => g.rt.monster || { def: 0, str: 0 };
+    const cur = g.style();
+    const mark = (k) => (cur === k ? ' ◀' : '');
     const fields = [
-      ['⚔️ 공격', () => fmt(g.stats().atk)],
-      ['💪 힘', () => fmt(g.stats().str)],
+      ['⚔️ 공격' + mark('melee'), () => fmt(g.stats().atk)],
+      ['💪 힘' + mark('melee'), () => fmt(g.stats().str)],
+      ['🏹 원거리' + mark('ranged'), () => fmt(g.stats().rng)],
+      ['🔮 마법' + mark('magic'), () => fmt(g.stats().mag)],
       ['🛡️ 방어', () => fmt(g.stats().def)],
       ['❤️ 체력', () => `${fmt(Math.max(0, g.rt.heroHp))} / ${fmt(g.heroMaxHp())}`],
       ['🎯 치명타', () => fmtPct(g.stats().crit, 1) + ' · x' + CRIT_MULT],
+      ['🧛 흡혈', () => fmtPct(g.stats().ls, 1)],
+      ['🧱 피해 감소', () => fmtPct(g.stats().dr, 1)],
+      ['💚 초당 회복', () => fmtPct(0.02 + g.stats().regen, 2)],
       ['💨 공격 속도', () => g.atkSpeed().toFixed(2) + '/초'],
       ['🗡️ 피해 범위', () => `${fmt(g.maxHit() * g.minHitFrac())}~${fmt(g.maxHit())}`],
       ['📈 DPS', () => fmt(g.totalDps())],
-      ['💥 받는 피해', () => fmt(incomingHit(mon().str, g.stats().def)) + '/회'],
-      ['🧱 피해 감소', () => fmtPct(defEfficiency(g.stats().def, mon().str), 1)],
+      ['💥 받는 피해', () => fmt(incomingHit(mon().str, g.stats().def) * (1 - g.stats().dr)) + '/회'],
+      ['🛡️ 방어 효율', () => fmtPct(defEfficiency(g.stats().def, mon().str), 1)],
+      ['🍀 드롭률 배율', () => 'x' + g.lootMult().toFixed(2)],
     ];
     const vals = fields.map(([label]) => {
       const it = h('div', 'stat', `<span>${label}</span><b></b>`);
@@ -269,6 +279,27 @@ export class UI {
     });
     this.updaters.push(() => setText(pw, `전투력 ${fmt(g.powerScore())} · 몬스터(스테이지 ${s.stage}) 체력 ${fmt(mon().maxHp || 0)} · 방어 ${fmt(mon().def)} · 힘 ${fmt(mon().str)}`));
 
+    // 지금 몬스터의 전리품 표
+    const loot = h('details', 'card loottable');
+    panel.appendChild(loot);
+    let lootSig = '';
+    this.updaters.push(() => {
+      const m = g.rt.monster;
+      const sig = `${s.stage}/${m?.mi}/${m?.boss}/${g.lootMult().toFixed(3)}`;
+      if (sig === lootSig) return;
+      lootSig = sig;
+      const lm = g.lootMult();
+      const rows = g.monsterLoot(m).map((d) => {
+        const p = Math.min(1, d.c * lm);
+        const label = d.mat ? `${MATS[d.mat].icon} ${MATS[d.mat].name} ${d.q[0] === d.q[1] ? d.q[0] : d.q[0] + '~' + d.q[1]}`
+          : `${d.kind ? WICON[d.kind] : SLOTS[d.slot].icon} ${itemName({ ...d, lvl: s.stage, r: 0, enh: 0 })}${d.aff ? ' (' + STYLES[d.aff].name + ')' : ''}`;
+        return `<div class="lrow"><span>${label}</span><b>${fmtPct(p, p < 0.01 ? 2 : 1)}</b></div>`;
+      }).join('');
+      const open = loot.open;
+      loot.innerHTML = `<summary>🎁 전리품 표 · ${m ? m.e + ' ' + m.name : ''} (드롭률 x${lm.toFixed(2)} 적용)</summary>${rows}<div class="muted lnote">각 항목을 따로 굴립니다. 장비 등급은 따로 정해지고, 보스는 고등급 장비를 추가로 줍니다.</div>`;
+      loot.open = open;
+    });
+
     panel.appendChild(h('div', 'section-title', '🎽 장착 장비'));
     const wrap = h('div');
     panel.appendChild(wrap);
@@ -279,7 +310,7 @@ export class UI {
         if (it) wrap.appendChild(this.itemCard(it, true));
         else {
           const off = slot === 'shield' && g.twoHanded();
-          wrap.appendChild(h('div', 'item empty', `<div class="iicon">${SLOTS[slot].icon}</div><div class="iinfo"><div class="iname">${SLOTS[slot].name} 없음</div><div class="istat">${off ? '양손검 착용 중' : '몬스터 드롭 · 대장기술 · 제작으로 획득'}</div></div>`));
+          wrap.appendChild(h('div', 'item empty', `<div class="iicon">${SLOTS[slot].icon}</div><div class="iinfo"><div class="iname">${SLOTS[slot].name} 없음</div><div class="istat">${off ? '양손 무기 착용 중' : '몬스터 전리품 · 대장기술 · 제작으로 획득'}</div></div>`));
         }
       }
     };
@@ -290,7 +321,9 @@ export class UI {
   itemCard(it, equipped) {
     const g = this.game;
     const rar = RARITIES[it.r];
-    const icon = it.slot === 'weapon' ? (WEAPONS[it.kind || 'sword'].twoHand ? '⚔️' : '🗡️') : SLOTS[it.slot].icon;
+    const icon = it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon;
+    const ist = itemStyle(it);
+    const styTag = ist ? ` <span class="stag s-${ist}">${STYLES[ist].name}</span>` : '';
     const el = h('div', 'item' + (equipped ? ' equipped' : ''));
     el.style.setProperty('--rc', rar.color);
     let diff = '';
@@ -301,11 +334,12 @@ export class UI {
     const inactive = equipped && it.slot === 'shield' && g.twoHanded();
     const wd = it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'] : null;
     const extra = wd ? ` · 속도 ${wd.speed}${wd.minHit ? ' · 최소피해+' + Math.round(wd.minHit * 100) + '%' : ''}${wd.twoHand ? ' · 양손' : ''}` : '';
+    const offStyle = ist && ist !== g.style() ? ` <span class="diff down">${it.slot === 'weapon' ? '장착하면 전투 방식 변경' : '전투 방식 불일치'}</span>` : '';
     el.innerHTML = `
       <div class="iicon">${icon}</div>
       <div class="iinfo">
-        <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)} <small>Lv${it.lvl}</small></div>
-        <div class="istat">${statText(itemStats(it))}${extra} ${diff}${inactive ? ' <span class="diff down">양손검으로 비활성</span>' : ''}</div>
+        <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)} <small>Lv${it.lvl}</small>${styTag}</div>
+        <div class="istat">${statText(itemStats(it))}${extra} ${diff}${offStyle}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>
       </div>
       <div class="ibtns"></div>`;
     const btns = $('.ibtns', el);
@@ -789,20 +823,27 @@ export class UI {
     const s = g.s;
     const ap = activePet(s);
     panel.appendChild(h('div', 'card note', ap ? `데리고 다니는 펫: ${ap.icon} <b>${ap.name}</b> · ${bonusText(ap.bonus)}` : '데리고 다니는 펫이 없습니다. 펫은 1마리만 데리고 다닐 수 있습니다.'));
-    const groups = [['shop', '🛒 상점 펫'], ['boss', '👑 보스 펫 (지역 보스 처치 시 1%)'], ['skillboss', '🐉 스킬 보스 펫'], ['quest', '🗺️ 원정 펫']];
-    for (const [src, title] of groups) {
-      panel.appendChild(h('div', 'section-title', `${title} (${PETS.filter((p) => p.src === src && hasPet(s, p.id)).length} / ${PETS.filter((p) => p.src === src).length})`));
-      for (const p of PETS.filter((x) => x.src === src)) {
+    panel.appendChild(h('div', 'muted center', `펫 도감 ${s.world.pets.owned.length} / ${PETS.length} · 드롭으로 얻는 펫은 드롭률 효과를 받습니다`));
+    this.petOpen ||= { shop: true };
+    for (const src of Object.keys(PET_SRC)) {
+      const list = PETS.filter((p) => p.src === src);
+      const box = h('details', 'petgroup');
+      box.open = !!this.petOpen[src];
+      box.addEventListener('toggle', () => { this.petOpen[src] = box.open; });
+      box.appendChild(h('summary', 'section-title', `${PET_SRC[src]} (${list.filter((p) => hasPet(s, p.id)).length} / ${list.length})`));
+      panel.appendChild(box);
+      for (const p of list) {
         const owned = hasPet(s, p.id);
         const r = makeRow(owned || src === 'shop' ? p.icon : '❔');
         setText(r.name, owned || src === 'shop' ? p.name : '???');
         setText(r.desc, bonusText(p.bonus));
-        if (src === 'skillboss') setText(r.lv, p.id === 'woodpecker' || p.id === 'hedgehog' || p.id === 'penguin' ? '전용 보스' : '모든 스킬 보스');
+        const where = p.zone !== undefined ? ZONES_T[p.zone] : p.weather ? WEATHER_T[p.weather] : p.season ? SEASON_T[p.season] : p.skill ? LIFE[p.skill].icon + ' ' + LIFE[p.skill].name : '';
+        if (where) setText(r.lv, where);
         r.btn.addEventListener('click', () => {
           if (hasPet(s, p.id)) { setPet(g, p.id); this.showTab('adv', true); }
           else if (buyPet(g, p.id)) this.showTab('adv', true);
         });
-        panel.appendChild(r.el);
+        box.appendChild(r.el);
         this.updaters.push(() => {
           const own = hasPet(s, p.id);
           const on = s.world.pets.active === p.id;
@@ -819,7 +860,7 @@ export class UI {
             setDisabled(r.btn, lockd || s.gold < petCost(p));
           } else {
             setText(r.bt1, '미획득');
-            setText(r.bt2, PET_SRC[src]);
+            setText(r.bt2, '');
             setDisabled(r.btn, true);
           }
         });
@@ -897,7 +938,9 @@ export class UI {
         <li>스테이지마다 몬스터 ${STAGE_KILLS}마리를 처치하면 <b>보스</b>가 등장합니다 (제한시간 ${BOSS_TIME}초).</li>
         <li>보스에게 지면 사냥 모드로 바뀝니다. 강해진 뒤 <b>👑 보스 도전</b>을 누르세요.</li>
         <li>스킬은 스테이지 진행에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
-        <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 9부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
+        <li>전투 방식은 무기로 정해집니다: <b>근접</b>(검 · 공격+힘), <b>원거리</b>(석궁·장궁 · 원거리), <b>마법</b>(마법봉·지팡이 · 마법, 방어 관통). 장갑 · 목걸이 · 반지 · 보조장비는 성향이 맞아야 공격 스탯이 오릅니다.</li>
+        <li>몬스터마다 <b>전리품 표</b>가 있고 각 항목을 따로 굴립니다. 드롭률 효과(VIP · 펫 · 날씨)는 모든 확률에 곱해집니다.</li>
+        <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 12부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
         <li>최대 피해 = (공격 + 힘) x 0.85 - 몬스터 방어 x 0.3 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
         <li>막히면 이전 스테이지에서 장비를 모으고 강화하거나, 대장기술·제작으로 장비를 만드세요.</li>
         <li><b>👑 VIP++</b>는 무료입니다: 생활 경험치 · 장비 드롭 · 골드 ${VIP.label}.</li>
@@ -908,6 +951,11 @@ export class UI {
       <p class="muted center">${GAME_NAME} v${VERSION}</p>`));
   }
 }
+
+const WICON = { sword: '🗡️', blade: '🗡️', great: '⚔️', xbow: '🏹', bow: '🏹', wand: '✨', staff: '🔮' };
+const ZONES_T = ZONES.map((z) => z.name);
+const WEATHER_T = Object.fromEntries(Object.entries(WEATHERS).map(([k, w]) => [k, w.icon + ' ' + w.name]));
+const SEASON_T = Object.fromEntries(SEASONS.map((x) => [x.id, x.icon + ' ' + x.name]));
 
 function goldPerKillAt(s) {
   return goldPerKill(Math.max(1, s.maxStage));

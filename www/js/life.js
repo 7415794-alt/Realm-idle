@@ -1,7 +1,7 @@
 // 생활 스킬 (채집 · 가공 · 제작) — 데이터와 로직 (DOM 없음)
 import { goldPerKill, RARITIES, itemName, VIP } from './data.js';
 import { fmt } from './format.js';
-import { worldBonus, questEvent } from './world.js';
+import { worldBonus, questEvent, rollSkillPet } from './world.js';
 
 export const LIFE_MAX_LV = 99;
 const AUTO_EAT_RATIO = 0.4;       // 체력이 이 비율 아래면 음식 자동 섭취
@@ -33,46 +33,106 @@ export const xpScale = (lvl) => 1 + Math.pow(lvl / 40, 2);
 // ---------- 재료 / 소모품 ----------
 // value: 판매가 배율 (현재 최고 스테이지의 처치 골드 기준)
 export const MATS = {
-  // 벌목
+  // 벌목 (10)
   log_oak: { name: '참나무 원목', icon: '🌳', value: 0.3 },
+  log_birch: { name: '자작나무 원목', icon: '🎋', value: 0.45 },
   log_pine: { name: '소나무 원목', icon: '🌲', value: 0.6 },
+  log_aspen: { name: '사시나무 원목', icon: '🍃', value: 0.9 },
   log_maple: { name: '단풍나무 원목', icon: '🍁', value: 1.2 },
-  log_yew: { name: '주목 원목', icon: '🎄', value: 2.4 },
-  log_world: { name: '세계수 가지', icon: '🌴', value: 5 },
-  // 채광
+  log_cedar: { name: '삼나무 원목', icon: '🏕️', value: 1.7 },
+  log_ebony: { name: '흑단 원목', icon: '⬛', value: 2.4 },
+  log_yew: { name: '주목 원목', icon: '🎄', value: 3.2 },
+  log_frost: { name: '서리나무 원목', icon: '🌨️', value: 4.5 },
+  log_world: { name: '세계수 가지', icon: '🌴', value: 6 },
+  // 채광 (11) + 보석
   ore_copper: { name: '구리 광석', icon: '🔸', value: 0.3 },
   rune_ess: { name: '룬 원석', icon: '💠', value: 0.4 },
   coal: { name: '석탄', icon: '⚫', value: 0.5 },
   ore_iron: { name: '철 광석', icon: '⚪', value: 0.8 },
-  ore_mithril: { name: '미스릴 광석', icon: '🔷', value: 2 },
+  ore_gold: { name: '금 광석', icon: '🥇', value: 1.5 },
+  ore_cobalt: { name: '코발트 광석', icon: '🔵', value: 1.8 },
+  ore_mithril: { name: '미스릴 광석', icon: '🔷', value: 2.5 },
+  ore_titan: { name: '티타늄 광석', icon: '◻️', value: 3.2 },
   ore_adamant: { name: '아다만 광석', icon: '🔶', value: 4 },
+  ore_frost: { name: '빙하 광석', icon: '❄️', value: 5.5 },
+  ore_aether: { name: '에테르 광석', icon: '✴️', value: 8 },
   gem: { name: '보석', icon: '💎', value: 15 },
-  // 낚시
+  gem_sapphire: { name: '사파이어', icon: '🔹', value: 8 },
+  gem_emerald: { name: '에메랄드', icon: '❇️', value: 14 },
+  gem_ruby: { name: '루비', icon: '♦️', value: 22 },
+  gem_diamond: { name: '다이아몬드', icon: '✨', value: 40 },
+  // 낚시 (16)
   fish_minnow: { name: '피라미', icon: '🐟', value: 0.3 },
-  fish_shrimp: { name: '새우', icon: '🦐', value: 0.6 },
-  fish_tropical: { name: '열대어', icon: '🐠', value: 1.2 },
-  fish_puffer: { name: '복어', icon: '🐡', value: 2.4 },
+  fish_perch: { name: '농어', icon: '🐟', value: 0.4 },
+  fish_salmon: { name: '연어', icon: '🐟', value: 0.55 },
+  fish_shrimp: { name: '새우', icon: '🦐', value: 0.7 },
+  fish_carp: { name: '잉어', icon: '🎏', value: 0.9 },
+  fish_pike: { name: '강꼬치고기', icon: '🐟', value: 1.1 },
+  fish_tropical: { name: '열대어', icon: '🐠', value: 1.4 },
+  fish_eel: { name: '장어', icon: '🐍', value: 1.8 },
+  fish_barracuda: { name: '창꼬치', icon: '🐟', value: 2.2 },
+  fish_puffer: { name: '복어', icon: '🐡', value: 2.6 },
+  fish_seasnake: { name: '바다뱀', icon: '🐍', value: 3.1 },
+  fish_angler: { name: '아귀', icon: '🏮', value: 3.6 },
+  fish_octopus: { name: '문어', icon: '🐙', value: 4.2 },
   fish_shark: { name: '상어', icon: '🦈', value: 5 },
+  fish_tuna: { name: '냉동 참치', icon: '🐟', value: 6.2 },
+  fish_abyss: { name: '심연어', icon: '🦑', value: 8 },
   // 요리 (heal: 최대 체력 대비 회복량)
-  food_minnow: { name: '피라미 꼬치', icon: '🍢', value: 0.6, heal: 0.2 },
-  food_shrimp: { name: '새우튀김', icon: '🍤', value: 1.2, heal: 0.3 },
-  food_tropical: { name: '생선 초밥', icon: '🍣', value: 2.4, heal: 0.4 },
-  food_puffer: { name: '복어 전골', icon: '🍲', value: 4.8, heal: 0.55 },
-  food_shark: { name: '상어 스테이크', icon: '🥩', value: 10, heal: 0.75 },
-  // 대장기술
+  food_minnow: { name: '피라미 꼬치', icon: '🍢', value: 0.6, heal: 0.15 },
+  food_perch: { name: '농어 구이', icon: '🍖', value: 0.8, heal: 0.18 },
+  food_salmon: { name: '연어 주먹밥', icon: '🍙', value: 1.1, heal: 0.21 },
+  food_shrimp: { name: '새우튀김', icon: '🍤', value: 1.4, heal: 0.24 },
+  food_carp: { name: '잉어찜', icon: '🥘', value: 1.8, heal: 0.28 },
+  food_pike: { name: '생선 만두', icon: '🥟', value: 2.2, heal: 0.32 },
+  food_tropical: { name: '생선 초밥', icon: '🍣', value: 2.8, heal: 0.36 },
+  food_eel: { name: '장어 덮밥', icon: '🍛', value: 3.6, heal: 0.4 },
+  food_barracuda: { name: '창꼬치 도시락', icon: '🍱', value: 4.4, heal: 0.45 },
+  food_puffer: { name: '복어 전골', icon: '🍲', value: 5.2, heal: 0.5 },
+  food_seasnake: { name: '바다뱀 탕', icon: '🍜', value: 6.2, heal: 0.55 },
+  food_angler: { name: '아귀찜', icon: '🌶️', value: 7.2, heal: 0.6 },
+  food_octopus: { name: '문어 볶음', icon: '🍝', value: 8.4, heal: 0.66 },
+  food_shark: { name: '상어 스테이크', icon: '🥩', value: 10, heal: 0.72 },
+  food_tuna: { name: '참치 회', icon: '🥗', value: 12.4, heal: 0.8 },
+  food_abyss: { name: '심연 만찬', icon: '🍽️', value: 16, heal: 0.9 },
+  // 대장기술 주괴
   bar_bronze: { name: '청동 주괴', icon: '🧱', value: 0.8 },
   bar_iron: { name: '철 주괴', icon: '🧱', value: 2 },
-  bar_mithril: { name: '미스릴 주괴', icon: '🧱', value: 5 },
+  bar_gold: { name: '금 주괴', icon: '🧱', value: 3.5 },
+  bar_cobalt: { name: '코발트 주괴', icon: '🧱', value: 4 },
+  bar_mithril: { name: '미스릴 주괴', icon: '🧱', value: 5.5 },
+  bar_titan: { name: '티타늄 주괴', icon: '🧱', value: 7 },
   bar_adamant: { name: '아다만 주괴', icon: '🧱', value: 10 },
+  bar_frost: { name: '빙하 주괴', icon: '🧱', value: 14 },
+  bar_aether: { name: '에테르 주괴', icon: '🧱', value: 20 },
   // 약초
   herb: { name: '약초', icon: '🌿', value: 0.5 },
   herb_rare: { name: '희귀 약초', icon: '🍀', value: 3 },
-  // 뼈 (몬스터 처치 시 지역에 따라 획득)
+  // 뼈 (몬스터 전리품, 지역에 따라 다름)
   bone: { name: '뼈', icon: '🦴', value: 0.2 },
   bone_big: { name: '큰 뼈', icon: '🦴', value: 0.6 },
   bone_beast: { name: '맹수의 뼈', icon: '🦴', value: 1.5 },
   bone_dragon: { name: '용의 뼈', icon: '🦴', value: 4 },
   bone_ancient: { name: '태고의 뼈', icon: '🦴', value: 10 },
+  // 몬스터 전리품
+  mon_feather: { name: '깃털', icon: '🕊️', value: 0.3 },
+  mon_hide: { name: '가죽', icon: '🧥', value: 0.4 },
+  mon_mushroom: { name: '독버섯', icon: '🍄', value: 0.4 },
+  mon_slime: { name: '점액', icon: '💧', value: 0.5 },
+  mon_venom: { name: '독주머니', icon: '☠️', value: 0.8 },
+  mon_claw: { name: '맹수 발톱', icon: '🔪', value: 1 },
+  mon_web: { name: '거미줄', icon: '🕸️', value: 0.9 },
+  mon_horn: { name: '뿔', icon: '📯', value: 1.2 },
+  mon_ember: { name: '용암 결정', icon: '🌋', value: 1.5 },
+  mon_scale: { name: '비늘', icon: '🦎', value: 1.8 },
+  mon_ice: { name: '서리 결정', icon: '❄️', value: 2 },
+  mon_ecto: { name: '영혼 조각', icon: '👻', value: 2.5 },
+  mon_shadow: { name: '그림자 정수', icon: '🕳️', value: 3 },
+  mon_cloth: { name: '저주받은 천', icon: '🧵', value: 2.2 },
+  mon_storm: { name: '폭풍 정수', icon: '⚡', value: 3.5 },
+  mon_honey: { name: '하늘꿀', icon: '🍯', value: 3 },
+  mon_pearl: { name: '흑진주', icon: '🌕', value: 5 },
+  mon_ink: { name: '심연 먹물', icon: '🖋️', value: 4 },
   // 비전술
   rune_air: { name: '바람 룬', icon: '🌀', value: 0.8 },
   rune_fire: { name: '불 룬', icon: '🔥', value: 1.6 },
@@ -130,95 +190,127 @@ export const PRODUCTION = ['cook', 'smith', 'craft', 'alch', 'arcane'];
 // 신성술 레벨로 해금, 1개만 활성화. effect 값은 비율(+0.1 = +10%)
 export const PRAYERS = [
   { id: 'guard', name: '수호의 기도', icon: '🛡️', lvl: 1, effect: { hp: 0.1 }, desc: '최대 체력 +10%' },
-  { id: 'war', name: '전사의 기도', icon: '⚔️', lvl: 8, effect: { atk: 0.1 }, desc: '공격·힘 +10%' },
+  { id: 'war', name: '전사의 기도', icon: '⚔️', lvl: 8, effect: { atk: 0.1 }, desc: '모든 공격 스탯 +10%' },
   { id: 'iron', name: '철갑의 기도', icon: '🔰', lvl: 15, effect: { def: 0.15 }, desc: '방어 +15%' },
   { id: 'nimble', name: '날랜 손의 기도', icon: '🗝️', lvl: 22, effect: { thief: 0.1 }, desc: '도둑질 성공률 +10%p' },
   { id: 'nature', name: '대지의 기도', icon: '🌳', lvl: 30, effect: { gather: 0.25 }, desc: '채집 속도 +25%' },
   { id: 'craft', name: '장인의 기도', icon: '🛠️', lvl: 38, effect: { prod: 0.25 }, desc: '가공 속도 +25%' },
+  { id: 'leech', name: '피의 기도', icon: '💉', lvl: 42, effect: { ls: 0.03 }, desc: '흡혈 +3%p' },
   { id: 'gold', name: '황금의 기도', icon: '💰', lvl: 45, effect: { gold: 0.3 }, desc: '골드 획득 +30%' },
   { id: 'wisdom', name: '지혜의 기도', icon: '📖', lvl: 55, effect: { xp: 0.2 }, desc: '생활 경험치 +20%' },
-  { id: 'fury', name: '분노의 기도', icon: '🔥', lvl: 65, effect: { atk: 0.3, def: 0.2 }, desc: '공격·힘 +30%, 방어 +20%' },
+  { id: 'ward', name: '결계의 기도', icon: '🔯', lvl: 60, effect: { dr: 0.08, regen: 0.005 }, desc: '피해 감소 +8%p, 초당 회복 +0.5%p' },
+  { id: 'fury', name: '분노의 기도', icon: '🔥', lvl: 65, effect: { atk: 0.3, def: 0.2 }, desc: '모든 공격 스탯 +30%, 방어 +20%' },
   { id: 'grace', name: '신의 은총', icon: '🌟', lvl: 80, effect: { dmg: 0.5, gold: 0.3, xp: 0.2 }, desc: '모든 피해 +50%, 골드 +30%, 생활 경험치 +20%' },
 ];
 
 // ---------- 스킬 / 행동 ----------
 // in: 소모 재료, out: 획득 재료, extra: [재료, 확률] 추가 획득,
 // equip: { slots, r } 장비 제작, gold: 처치 골드 배율 (도둑질), group: 목록 구분
+const SMITH_SLOTS = ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'];
+const CRAFT_SLOTS = ['gloves', 'amulet', 'ring1', 'cape', 'off'];
+const g = (id, name, icon, lvl, time, xp, out, extra) => ({ id, name, icon, lvl, time, xp, out: { [out]: 1 }, ...(extra ? { extra } : {}) });
+const FISH = [
+  ['minnow', '개울 낚시', '🐟', 1], ['perch', '호숫가 낚시', '🐟', 5], ['salmon', '연어 여울', '🐟', 10], ['shrimp', '갯벌 통발', '🦐', 15],
+  ['carp', '연못 낚시', '🎏', 20], ['pike', '강 하구', '🐟', 25], ['tropical', '산호초 낚시', '🐠', 30], ['eel', '진흙 강바닥', '🐍', 38],
+  ['barracuda', '암초 지대', '🐟', 45], ['puffer', '먼바다 낚시', '🐡', 50], ['seasnake', '해초 숲', '🐍', 57], ['angler', '어두운 해구', '🏮', 63],
+  ['octopus', '난파선 주변', '🐙', 68], ['shark', '심해 낚시', '🦈', 74], ['tuna', '빙해 낚시', '🐟', 82], ['abyss', '심연 낚시', '🦑', 90],
+];
+const COOK = {
+  minnow: '피라미 꼬치', perch: '농어 구이', salmon: '연어 주먹밥', shrimp: '새우튀김', carp: '잉어찜', pike: '생선 만두', tropical: '생선 초밥', eel: '장어 덮밥',
+  barracuda: '창꼬치 도시락', puffer: '복어 전골', seasnake: '바다뱀 탕', angler: '아귀찜', octopus: '문어 볶음', shark: '상어 스테이크', tuna: '참치 회', abyss: '심연 만찬',
+};
+const xpAt = (lvl) => Math.round(7 + lvl * 1.1 + Math.pow(lvl, 1.6) / 6);
+
 export const LIFE_SKILLS = [
   {
     id: 'wood', name: '벌목', icon: '🪓', kind: '채집', tool: 'wood', desc: '나무를 베어 원목을 얻습니다. 가끔 약초를 발견합니다.',
     actions: [
-      { id: 'oak', name: '참나무', icon: '🌳', lvl: 1, time: 3, xp: 8, out: { log_oak: 1 }, extra: [['herb', 0.05]] },
-      { id: 'pine', name: '소나무', icon: '🌲', lvl: 12, time: 3.5, xp: 15, out: { log_pine: 1 }, extra: [['herb', 0.06]] },
-      { id: 'maple', name: '단풍나무', icon: '🍁', lvl: 28, time: 4, xp: 28, out: { log_maple: 1 }, extra: [['herb', 0.07]] },
-      { id: 'yew', name: '주목', icon: '🎄', lvl: 45, time: 4.5, xp: 45, out: { log_yew: 1 }, extra: [['herb_rare', 0.04]] },
-      { id: 'world', name: '세계수', icon: '🌴', lvl: 65, time: 5, xp: 75, out: { log_world: 1 }, extra: [['herb_rare', 0.06]] },
+      g('oak', '참나무', '🌳', 1, 3, 8, 'log_oak', [['herb', 0.05]]),
+      g('birch', '자작나무', '🎋', 8, 3.2, 12, 'log_birch', [['herb', 0.05]]),
+      g('pine', '소나무', '🌲', 15, 3.5, 16, 'log_pine', [['herb', 0.06]]),
+      g('aspen', '사시나무', '🍃', 22, 3.7, 21, 'log_aspen', [['herb', 0.06]]),
+      g('maple', '단풍나무', '🍁', 30, 4, 28, 'log_maple', [['herb', 0.07]]),
+      g('cedar', '삼나무', '🏕️', 38, 4.2, 36, 'log_cedar', [['herb', 0.07]]),
+      g('ebony', '흑단나무', '⬛', 45, 4.5, 46, 'log_ebony', [['herb_rare', 0.03]]),
+      g('yew', '주목', '🎄', 55, 4.7, 60, 'log_yew', [['herb_rare', 0.04]]),
+      g('frost', '서리나무', '🌨️', 68, 5, 82, 'log_frost', [['herb_rare', 0.05]]),
+      g('world', '세계수', '🌴', 80, 5.5, 115, 'log_world', [['herb_rare', 0.07]]),
     ],
   },
   {
     id: 'mine', name: '채광', icon: '⛏️', kind: '채집', tool: 'mine', desc: '광석과 룬 원석을 캡니다. 가끔 보석이 나옵니다.',
     actions: [
-      { id: 'copper', name: '구리 광맥', icon: '🔸', lvl: 1, time: 3, xp: 8, out: { ore_copper: 1 }, extra: [['gem', 0.01]] },
-      { id: 'runeess', name: '룬 원석 광맥', icon: '💠', lvl: 5, time: 3, xp: 10, out: { rune_ess: 1 }, extra: [['gem', 0.01]] },
-      { id: 'coal', name: '석탄 광맥', icon: '⚫', lvl: 12, time: 3.5, xp: 14, out: { coal: 1 }, extra: [['gem', 0.015]] },
-      { id: 'iron', name: '철 광맥', icon: '⚪', lvl: 15, time: 3.5, xp: 17, out: { ore_iron: 1 }, extra: [['gem', 0.015]] },
-      { id: 'mithril', name: '미스릴 광맥', icon: '🔷', lvl: 35, time: 4.5, xp: 35, out: { ore_mithril: 1 }, extra: [['gem', 0.02]] },
-      { id: 'adamant', name: '아다만 광맥', icon: '🔶', lvl: 55, time: 5, xp: 60, out: { ore_adamant: 1 }, extra: [['gem', 0.03]] },
+      g('copper', '구리 광맥', '🔸', 1, 3, 8, 'ore_copper', [['gem', 0.01]]),
+      g('runeess', '룬 원석 광맥', '💠', 5, 3, 10, 'rune_ess', [['gem', 0.01]]),
+      g('coal', '석탄 광맥', '⚫', 12, 3.5, 14, 'coal', [['gem', 0.012]]),
+      g('iron', '철 광맥', '⚪', 15, 3.5, 17, 'ore_iron', [['gem', 0.015], ['gem_sapphire', 0.005]]),
+      g('gold', '금 광맥', '🥇', 22, 3.8, 22, 'ore_gold', [['gem', 0.015], ['gem_sapphire', 0.008]]),
+      g('cobalt', '코발트 광맥', '🔵', 30, 4, 29, 'ore_cobalt', [['gem', 0.018], ['gem_emerald', 0.006]]),
+      g('mithril', '미스릴 광맥', '🔷', 38, 4.3, 37, 'ore_mithril', [['gem', 0.02], ['gem_emerald', 0.008]]),
+      g('titan', '티타늄 광맥', '◻️', 46, 4.6, 48, 'ore_titan', [['gem', 0.022], ['gem_ruby', 0.006]]),
+      g('adamant', '아다만 광맥', '🔶', 55, 5, 60, 'ore_adamant', [['gem', 0.025], ['gem_ruby', 0.008]]),
+      g('frost', '빙하 광맥', '❄️', 68, 5.3, 82, 'ore_frost', [['gem', 0.03], ['gem_diamond', 0.004]]),
+      g('aether', '에테르 광맥', '✴️', 80, 5.8, 115, 'ore_aether', [['gem', 0.035], ['gem_diamond', 0.006]]),
     ],
   },
   {
     id: 'fish', name: '낚시', icon: '🎣', kind: '채집', tool: 'fish', desc: '물고기를 낚습니다. 요리와 연금술 재료가 됩니다.',
-    actions: [
-      { id: 'minnow', name: '개울 낚시', icon: '🐟', lvl: 1, time: 3, xp: 8, out: { fish_minnow: 1 } },
-      { id: 'shrimp', name: '갯벌 통발', icon: '🦐', lvl: 12, time: 3.5, xp: 15, out: { fish_shrimp: 1 } },
-      { id: 'tropical', name: '산호초 낚시', icon: '🐠', lvl: 28, time: 4, xp: 28, out: { fish_tropical: 1 } },
-      { id: 'puffer', name: '먼바다 낚시', icon: '🐡', lvl: 45, time: 4.5, xp: 45, out: { fish_puffer: 1 } },
-      { id: 'shark', name: '심해 낚시', icon: '🦈', lvl: 65, time: 5, xp: 75, out: { fish_shark: 1 } },
-    ],
+    actions: FISH.map(([id, name, icon, lvl]) => g(id, name, icon, lvl, 2.6 + lvl / 40, xpAt(lvl), 'fish_' + id)),
   },
   {
-    id: 'cook', name: '요리', icon: '🍳', kind: '가공', desc: '물고기를 요리합니다. 음식은 전투 중 체력이 40% 아래로 떨어지면 자동으로 먹습니다. 레벨이 낮으면 태울 수 있습니다.',
+    id: 'cook', name: '요리', icon: '🍳', kind: '가공', desc: '물고기를 요리합니다. 음식은 전투 중 체력이 40% 아래로 떨어지면 회복량이 큰 것부터 자동으로 먹습니다. 레벨이 낮으면 태울 수 있습니다.',
     burn: true,
-    actions: [
-      { id: 'minnow', name: '피라미 꼬치', icon: '🍢', lvl: 1, time: 2.5, xp: 10, in: { fish_minnow: 1 }, out: { food_minnow: 1 } },
-      { id: 'shrimp', name: '새우튀김', icon: '🍤', lvl: 12, time: 2.5, xp: 18, in: { fish_shrimp: 1 }, out: { food_shrimp: 1 } },
-      { id: 'tropical', name: '생선 초밥', icon: '🍣', lvl: 28, time: 3, xp: 32, in: { fish_tropical: 1 }, out: { food_tropical: 1 } },
-      { id: 'puffer', name: '복어 전골', icon: '🍲', lvl: 45, time: 3, xp: 50, in: { fish_puffer: 1 }, out: { food_puffer: 1 } },
-      { id: 'shark', name: '상어 스테이크', icon: '🥩', lvl: 65, time: 3.5, xp: 80, in: { fish_shark: 1 }, out: { food_shark: 1 } },
-    ],
+    actions: FISH.map(([id, , , lvl]) => ({ id, name: COOK[id], icon: '🍳', lvl, time: 2.4 + lvl / 60, xp: Math.round(xpAt(lvl) * 1.2), in: { ['fish_' + id]: 1 }, out: { ['food_' + id]: 1 } })),
   },
   {
-    id: 'smith', name: '대장기술', icon: '🔨', kind: '가공', desc: '광석을 녹여 주괴를 만들고, 주괴로 무기·방패·투구·갑옷·각반·장화를 단조합니다. 단계마다 최소 등급이 보장됩니다. 주괴는 도구 업그레이드에도 쓰입니다.',
+    id: 'smith', name: '대장기술', icon: '🔨', kind: '가공', desc: '광석을 녹여 주괴를 만들고, 주괴로 무기·방패·투구·갑옷·각반·장화를 단조합니다. 무기는 지금 전투 방식에 맞는 종류, 단계마다 최소 등급이 보장됩니다.',
     actions: [
       { id: 'bronze', group: '주괴 제련', name: '청동 주괴', icon: '🧱', lvl: 1, time: 2.5, xp: 8, in: { ore_copper: 2 }, out: { bar_bronze: 1 } },
       { id: 'iron', name: '철 주괴', icon: '🧱', lvl: 15, time: 3, xp: 18, in: { ore_iron: 1, coal: 1 }, out: { bar_iron: 1 } },
-      { id: 'mithril', name: '미스릴 주괴', icon: '🧱', lvl: 35, time: 3.5, xp: 35, in: { ore_mithril: 1, coal: 2 }, out: { bar_mithril: 1 } },
+      { id: 'goldbar', name: '금 주괴', icon: '🧱', lvl: 22, time: 3, xp: 24, in: { ore_gold: 1 }, out: { bar_gold: 1 } },
+      { id: 'cobalt', name: '코발트 주괴', icon: '🧱', lvl: 30, time: 3.3, xp: 30, in: { ore_cobalt: 1, coal: 1 }, out: { bar_cobalt: 1 } },
+      { id: 'mithril', name: '미스릴 주괴', icon: '🧱', lvl: 38, time: 3.5, xp: 38, in: { ore_mithril: 1, coal: 2 }, out: { bar_mithril: 1 } },
+      { id: 'titan', name: '티타늄 주괴', icon: '🧱', lvl: 46, time: 3.7, xp: 48, in: { ore_titan: 1, coal: 2 }, out: { bar_titan: 1 } },
       { id: 'adamant', name: '아다만 주괴', icon: '🧱', lvl: 55, time: 4, xp: 60, in: { ore_adamant: 1, coal: 3 }, out: { bar_adamant: 1 } },
-      { id: 'gear0', group: '장비 단조', name: '청동 장비 단조', icon: '🗡️', lvl: 8, time: 5, xp: 35, in: { bar_bronze: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 0 } },
-      { id: 'gear1', name: '철 장비 단조', icon: '🗡️', lvl: 22, time: 5, xp: 70, in: { bar_iron: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 1 } },
-      { id: 'gear2', name: '미스릴 장비 단조', icon: '🗡️', lvl: 42, time: 6, xp: 130, in: { bar_mithril: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 2 } },
-      { id: 'gear3', name: '아다만 장비 단조', icon: '🗡️', lvl: 62, time: 6, xp: 220, in: { bar_adamant: 3 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 3 } },
-      { id: 'gear4', name: '에테르 장비 단조', icon: '⚔️', lvl: 80, time: 8, xp: 450, in: { bar_adamant: 5, rune_chaos: 5 }, equip: { slots: ['weapon', 'shield', 'helm', 'body', 'legs', 'boots'], r: 5 } },
+      { id: 'frostbar', name: '빙하 주괴', icon: '🧱', lvl: 68, time: 4.3, xp: 82, in: { ore_frost: 1, coal: 3 }, out: { bar_frost: 1 } },
+      { id: 'aetherbar', name: '에테르 주괴', icon: '🧱', lvl: 80, time: 4.6, xp: 115, in: { ore_aether: 1, coal: 4 }, out: { bar_aether: 1 } },
+      { id: 'gear0', group: '장비 단조', name: '청동 장비 단조', icon: '🗡️', lvl: 8, time: 5, xp: 35, in: { bar_bronze: 3 }, equip: { slots: SMITH_SLOTS, r: 0 } },
+      { id: 'gear1', name: '철 장비 단조', icon: '🗡️', lvl: 20, time: 5, xp: 70, in: { bar_iron: 3 }, equip: { slots: SMITH_SLOTS, r: 1 } },
+      { id: 'gear5', name: '코발트 장비 단조', icon: '🗡️', lvl: 32, time: 5.5, xp: 100, in: { bar_cobalt: 3 }, equip: { slots: SMITH_SLOTS, r: 1 } },
+      { id: 'gear2', name: '미스릴 장비 단조', icon: '🗡️', lvl: 42, time: 6, xp: 130, in: { bar_mithril: 3 }, equip: { slots: SMITH_SLOTS, r: 2 } },
+      { id: 'gear6', name: '티타늄 장비 단조', icon: '🗡️', lvl: 50, time: 6, xp: 170, in: { bar_titan: 3 }, equip: { slots: SMITH_SLOTS, r: 2 } },
+      { id: 'gear3', name: '아다만 장비 단조', icon: '⚔️', lvl: 60, time: 6.5, xp: 220, in: { bar_adamant: 3 }, equip: { slots: SMITH_SLOTS, r: 3 } },
+      { id: 'gear7', name: '빙하 장비 단조', icon: '⚔️', lvl: 70, time: 7, xp: 320, in: { bar_frost: 3 }, equip: { slots: SMITH_SLOTS, r: 4 } },
+      { id: 'gear4', name: '에테르 장비 단조', icon: '⚔️', lvl: 82, time: 8, xp: 480, in: { bar_aether: 3, rune_chaos: 2 }, equip: { slots: SMITH_SLOTS, r: 5 } },
     ],
   },
   {
-    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목과 주괴, 보석으로 장갑·목걸이·망토를 만듭니다. 단계마다 최소 등급이 보장됩니다.',
+    id: 'craft', name: '제작', icon: '🧰', kind: '가공', desc: '원목 · 몬스터 전리품 · 주괴 · 보석으로 장갑 · 목걸이 · 반지 · 망토 · 보조장비를 만듭니다. 지금 전투 방식에 맞는 성향으로 만들어지고, 단계마다 최소 등급이 보장됩니다.',
     actions: [
-      { id: 'acc0', name: '나무 부적', icon: '📿', lvl: 1, time: 4, xp: 20, in: { log_oak: 5 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 0 } },
-      { id: 'acc1', name: '소나무 반지', icon: '💍', lvl: 15, time: 5, xp: 50, in: { log_pine: 5, bar_bronze: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 1 } },
-      { id: 'acc2', name: '단풍 목걸이', icon: '📿', lvl: 35, time: 6, xp: 110, in: { log_maple: 5, bar_iron: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 2 } },
-      { id: 'acc3', name: '주목 보주', icon: '🔮', lvl: 55, time: 7, xp: 200, in: { log_yew: 5, bar_mithril: 2, gem: 1 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 3 } },
-      { id: 'acc4', name: '세계수 인장', icon: '💍', lvl: 75, time: 8, xp: 400, in: { log_world: 5, bar_adamant: 2, gem: 2 }, equip: { slots: ['gloves', 'amulet', 'cape'], r: 5 } },
+      { id: 'acc0', name: '참나무 공예', icon: '📿', lvl: 1, time: 4, xp: 20, in: { log_oak: 5 }, equip: { slots: CRAFT_SLOTS, r: 0 } },
+      { id: 'acc1', name: '가죽 공예', icon: '🧤', lvl: 10, time: 4.5, xp: 35, in: { mon_hide: 3, log_birch: 4 }, equip: { slots: CRAFT_SLOTS, r: 0 } },
+      { id: 'acc2', name: '깃털 공예', icon: '🏹', lvl: 18, time: 5, xp: 55, in: { mon_feather: 4, log_pine: 4, bar_bronze: 2 }, equip: { slots: CRAFT_SLOTS, r: 1 } },
+      { id: 'acc3', name: '금 세공', icon: '💍', lvl: 26, time: 5, xp: 75, in: { bar_gold: 2, gem_sapphire: 1 }, equip: { slots: CRAFT_SLOTS, r: 1 } },
+      { id: 'acc4', name: '거미줄 직조', icon: '🧣', lvl: 35, time: 5.5, xp: 105, in: { mon_web: 4, log_maple: 5, bar_cobalt: 2 }, equip: { slots: CRAFT_SLOTS, r: 2 } },
+      { id: 'acc5', name: '비늘 공예', icon: '🛡️', lvl: 45, time: 6, xp: 140, in: { mon_scale: 4, bar_mithril: 2, gem_emerald: 1 }, equip: { slots: CRAFT_SLOTS, r: 2 } },
+      { id: 'acc6', name: '영혼 직조', icon: '👻', lvl: 55, time: 6.5, xp: 190, in: { mon_ecto: 4, mon_cloth: 4, bar_titan: 2 }, equip: { slots: CRAFT_SLOTS, r: 3 } },
+      { id: 'acc7', name: '흑진주 세공', icon: '📿', lvl: 68, time: 7, xp: 280, in: { mon_pearl: 4, bar_adamant: 2, gem_ruby: 1 }, equip: { slots: CRAFT_SLOTS, r: 4 } },
+      { id: 'acc8', name: '세계수 인장', icon: '💍', lvl: 82, time: 8, xp: 450, in: { log_world: 5, bar_aether: 2, gem_diamond: 1 }, equip: { slots: CRAFT_SLOTS, r: 5 } },
     ],
   },
   {
-    id: 'alch', name: '연금술', icon: '⚗️', kind: '가공', desc: '약초로 물약을 만듭니다. 창고에서 마시면 일정 시간 강력한 버프를 받습니다.',
+    id: 'alch', name: '연금술', icon: '⚗️', kind: '가공', desc: '약초와 몬스터 전리품으로 물약을 만듭니다. 창고에서 마시면 일정 시간 강력한 버프를 받습니다.',
     actions: [
       { id: 'atk', name: '힘의 물약', icon: '🧪', lvl: 1, time: 3, xp: 15, in: { herb: 2, fish_minnow: 1 }, out: { pot_atk: 1 } },
+      { id: 'atk2', name: '힘의 물약 (독버섯)', icon: '🧪', lvl: 8, time: 3, xp: 20, in: { herb: 1, mon_mushroom: 2 }, out: { pot_atk: 1 } },
       { id: 'gold', name: '행운의 물약', icon: '🧪', lvl: 15, time: 3.5, xp: 30, in: { herb: 3, rune_air: 1 }, out: { pot_gold: 1 } },
+      { id: 'gold2', name: '행운의 물약 (하늘꿀)', icon: '🧪', lvl: 25, time: 3.5, xp: 40, in: { herb: 2, mon_honey: 1 }, out: { pot_gold: 2 } },
       { id: 'speed', name: '신속의 물약', icon: '🧪', lvl: 30, time: 4, xp: 50, in: { herb: 3, fish_tropical: 1 }, out: { pot_speed: 1 } },
+      { id: 'speed2', name: '신속의 물약 (폭풍 정수)', icon: '🧪', lvl: 40, time: 4, xp: 65, in: { herb: 2, mon_storm: 1 }, out: { pot_speed: 2 } },
       { id: 'hp', name: '거인의 물약', icon: '🧪', lvl: 45, time: 4.5, xp: 80, in: { herb: 3, herb_rare: 1, bar_iron: 1 }, out: { pot_hp: 1 } },
+      { id: 'hp2', name: '거인의 물약 (뿔)', icon: '🧪', lvl: 52, time: 4.5, xp: 95, in: { herb_rare: 1, mon_horn: 3 }, out: { pot_hp: 2 } },
       { id: 'all', name: '만능 물약', icon: '🍷', lvl: 65, time: 6, xp: 180, in: { herb_rare: 2, rune_earth: 2, gem: 1 }, out: { pot_all: 1 } },
+      { id: 'all2', name: '만능 물약 (심연 먹물)', icon: '🍷', lvl: 78, time: 6, xp: 240, in: { herb_rare: 2, mon_ink: 2, mon_shadow: 2 }, out: { pot_all: 2 } },
     ],
   },
   {
@@ -226,18 +318,21 @@ export const LIFE_SKILLS = [
     actions: [
       { id: 'air', name: '바람 룬', icon: '🌀', lvl: 1, time: 2, xp: 6, in: { rune_ess: 1 }, out: { rune_air: 1 } },
       { id: 'fire', name: '불 룬', icon: '🔥', lvl: 20, time: 2.5, xp: 14, in: { rune_ess: 1, coal: 1 }, out: { rune_fire: 1 } },
+      { id: 'fire2', name: '불 룬 (용암 결정)', icon: '🔥', lvl: 28, time: 2.5, xp: 18, in: { rune_ess: 1, mon_ember: 1 }, out: { rune_fire: 2 } },
       { id: 'earth', name: '대지 룬', icon: '⛰️', lvl: 40, time: 3, xp: 26, in: { rune_ess: 2 }, out: { rune_earth: 1 } },
       { id: 'chaos', name: '혼돈 룬', icon: '🌑', lvl: 60, time: 3.5, xp: 45, in: { rune_ess: 3, herb_rare: 1 }, out: { rune_chaos: 1 } },
+      { id: 'chaos2', name: '혼돈 룬 (그림자 정수)', icon: '🌑', lvl: 70, time: 3.5, xp: 55, in: { rune_ess: 2, mon_shadow: 1 }, out: { rune_chaos: 2 } },
     ],
   },
   {
-    id: 'divine', name: '신성술', icon: '🙏', kind: '봉헌', desc: '몬스터의 뼈(지역마다 다름)와 룬을 바쳐 신성력을 쌓습니다. 레벨이 오르면 기도가 해금되고, 기도 하나를 켜 두면 효과를 받습니다.',
+    id: 'divine', name: '신성술', icon: '🙏', kind: '봉헌', desc: '몬스터의 뼈(지역마다 다름)와 영혼 조각 · 룬을 바쳐 신성력을 쌓습니다. 레벨이 오르면 기도가 해금되고, 기도 하나를 켜 두면 효과를 받습니다.',
     actions: [
       { id: 'bone', group: '뼈 공양', name: '뼈 공양', icon: '🦴', lvl: 1, time: 2, xp: 10, in: { bone: 1 } },
       { id: 'bone_big', name: '큰 뼈 공양', icon: '🦴', lvl: 10, time: 2.5, xp: 22, in: { bone_big: 1 } },
       { id: 'bone_beast', name: '맹수의 뼈 공양', icon: '🦴', lvl: 25, time: 3, xp: 40, in: { bone_beast: 1 } },
       { id: 'bone_dragon', name: '용의 뼈 공양', icon: '🦴', lvl: 45, time: 3.5, xp: 70, in: { bone_dragon: 1 } },
       { id: 'bone_ancient', name: '태고의 뼈 공양', icon: '🦴', lvl: 65, time: 4, xp: 120, in: { bone_ancient: 1 } },
+      { id: 'ecto', group: '영혼 의식', name: '영혼 정화', icon: '👻', lvl: 35, time: 3, xp: 55, in: { mon_ecto: 1 } },
       { id: 'fire', group: '룬 의식', name: '불꽃 의식', icon: '🔥', lvl: 30, time: 3, xp: 45, in: { rune_fire: 3 } },
       { id: 'chaos', name: '혼돈 정화', icon: '🌑', lvl: 70, time: 4, xp: 140, in: { rune_chaos: 3 } },
     ],
@@ -252,13 +347,14 @@ export const LIFE_SKILLS = [
       { id: 'noble', name: '탐욕스러운 귀족', icon: '🤴', lvl: 40, time: 3, xp: 45, gold: 7 },
       { id: 'captain', name: '기사단장', icon: '🤺', lvl: 55, time: 3, xp: 70, gold: 11 },
       { id: 'veg', group: '노점 털기', name: '약초 노점', icon: '🥬', lvl: 10, time: 4, xp: 16, gold: 0.3, extra: [['herb', 0.7], ['herb_rare', 0.03]] },
-      { id: 'fishstall', name: '생선 노점', icon: '🐟', lvl: 20, time: 4, xp: 26, gold: 0.3, extra: [['fish_shrimp', 0.5], ['fish_tropical', 0.2]] },
-      { id: 'orestall', name: '광물 노점', icon: '⚒️', lvl: 35, time: 4.5, xp: 40, gold: 0.5, extra: [['ore_iron', 0.5], ['coal', 0.6], ['ore_mithril', 0.12]] },
-      { id: 'jeweler', name: '보석상', icon: '💍', lvl: 50, time: 5, xp: 60, gold: 1, extra: [['gem', 0.25]] },
-      { id: 'apothecary', name: '약재상', icon: '⚗️', lvl: 60, time: 5, xp: 75, gold: 1, extra: [['herb_rare', 0.45], ['rune_ess', 0.5]] },
-      { id: 'caravan', group: '대규모 털이', name: '상단 마차', icon: '🐎', lvl: 45, time: 10, xp: 160, gold: 30, extra: [['gem', 0.3], ['bar_iron', 0.5]] },
-      { id: 'manor', name: '귀족 저택', icon: '🏛️', lvl: 65, time: 12, xp: 260, gold: 60, extra: [['gem', 0.5], ['herb_rare', 0.6]] },
-      { id: 'vault', name: '왕실 금고', icon: '🏰', lvl: 80, time: 15, xp: 420, gold: 120, extra: [['gem', 1], ['rune_chaos', 0.5]] },
+      { id: 'fishstall', name: '생선 노점', icon: '🐟', lvl: 20, time: 4, xp: 26, gold: 0.3, extra: [['fish_shrimp', 0.5], ['fish_tropical', 0.2], ['fish_eel', 0.1]] },
+      { id: 'leather', name: '가죽 노점', icon: '🧥', lvl: 28, time: 4, xp: 32, gold: 0.4, extra: [['mon_hide', 0.6], ['mon_feather', 0.5], ['mon_horn', 0.15]] },
+      { id: 'orestall', name: '광물 노점', icon: '⚒️', lvl: 35, time: 4.5, xp: 40, gold: 0.5, extra: [['ore_iron', 0.5], ['coal', 0.6], ['ore_gold', 0.2], ['ore_mithril', 0.12]] },
+      { id: 'jeweler', name: '보석상', icon: '💍', lvl: 50, time: 5, xp: 60, gold: 1, extra: [['gem', 0.25], ['gem_sapphire', 0.1], ['gem_emerald', 0.05]] },
+      { id: 'apothecary', name: '약재상', icon: '⚗️', lvl: 60, time: 5, xp: 75, gold: 1, extra: [['herb_rare', 0.45], ['rune_ess', 0.5], ['mon_venom', 0.3]] },
+      { id: 'caravan', group: '대규모 털이', name: '상단 마차', icon: '🐎', lvl: 45, time: 10, xp: 160, gold: 30, extra: [['gem', 0.3], ['bar_iron', 0.5], ['mon_cloth', 0.3]] },
+      { id: 'manor', name: '귀족 저택', icon: '🏛️', lvl: 65, time: 12, xp: 260, gold: 60, extra: [['gem', 0.5], ['herb_rare', 0.6], ['gem_ruby', 0.1]] },
+      { id: 'vault', name: '왕실 금고', icon: '🏰', lvl: 80, time: 15, xp: 420, gold: 120, extra: [['gem', 1], ['rune_chaos', 0.5], ['gem_diamond', 0.08]] },
     ],
   },
 ];
@@ -435,7 +531,7 @@ function applyPerks(game, skillId, act, log) {
     else if (Math.random() < p.double) addMat(game, main, 1, log);
   } else if (skillId === 'fish') {
     const list = LIFE.fish.actions;
-    const i = list.indexOf(act);
+    const i = list.findIndex((x) => x.id === act.id);
     if (Math.random() < p.upgrade) addMat(game, Object.keys(list[Math.min(i + 1, list.length - 1)].out)[0], 1, log);
     if (Math.random() < p.gem) addMat(game, 'gem', 1, log);
   } else if (skillId === 'mine') {
@@ -488,6 +584,7 @@ function completeAction(game, skillId, act, log) {
   }
   gainXp(game, skillId, actionXp(s, act) * (skillId === 'divine' ? times : 1), log);
   questEvent(s, 'life', 1, skillId);
+  rollSkillPet(game, skillId, act);
   return true;
 }
 

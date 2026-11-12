@@ -1,5 +1,5 @@
 // 모험 시스템: 날씨 · 펫 · 스킬 보스 · 퀘스트 (DOM 없음)
-import { goldPerKill, RARITIES, SLOT_IDS, itemName } from './data.js';
+import { goldPerKill, RARITIES, DROP_SLOTS, LOOT_POOLS, itemName } from './data.js';
 import { fmt } from './format.js';
 import { lifeLevel, toolInfo, prayerBonus, bankAdd, LIFE, LIFE_SKILLS, MATS } from './life.js';
 
@@ -27,13 +27,15 @@ function seeded(n) {
 // gather: 채집 속도 %, prod: 가공 속도 %, xp: 생활 경험치 %, regen: 초당 체력 회복(최대 체력 비율),
 // x_<스킬>: 해당 생활 스킬 결과물 2배 확률
 export const BONUS_NAMES = {
-  atk: '공격·힘', def: '방어', hp: '최대 체력', dmg: '모든 피해', gold: '골드', drop: '장비 드롭',
-  gather: '채집 속도', prod: '가공 속도', xp: '생활 경험치', regen: '초당 체력 회복',
+  atk: '모든 공격 스탯', melee: '근접(공격·힘)', rng: '원거리', mag: '마법', def: '방어', hp: '최대 체력', dmg: '모든 피해',
+  gold: '골드', drop: '드롭률', gather: '채집 속도', prod: '가공 속도', xp: '생활 경험치',
+  regen: '초당 체력 회복', ls: '흡혈', dr: '피해 감소', crit: '치명타',
 };
+const FLAT = ['regen', 'ls', 'dr', 'crit'];
 export function bonusText(b) {
   return Object.entries(b).map(([k, v]) => {
     if (k.startsWith('x_')) return `${LIFE[k.slice(2)].name} 결과물 2배 ${Math.round(v * 100)}%`;
-    return `${BONUS_NAMES[k]} +${Math.round(v * 1000) / 10}%`;
+    return `${BONUS_NAMES[k]} +${Math.round(v * 1000) / 10}%${FLAT.includes(k) ? 'p' : ''}`;
   }).join(', ');
 }
 
@@ -76,37 +78,99 @@ function climateBonus(key) {
 }
 
 // ---------- 펫 ----------
-// 1마리만 데리고 다님. shop: 골드로 구매(최고 스테이지 조건), boss: 지역 보스 처치 시 드물게,
-// skillboss: 스킬 보스 보상 상자, quest: 원정 퀘스트 보상
+// 1마리만 데리고 다님. 획득처:
+// shop 상점(골드 · 최고 스테이지 조건) · boss 지역 보스 · skill 생활 스킬 중 · sboss 스킬 보스 상자 ·
+// monster 일반 몬스터 · weather 해당 날씨에 사냥 · season 해당 계절 주간 퀘스트 · quest 원정 퀘스트
+const P = (id, name, icon, src, bonus, extra = {}) => ({ id, name, icon, src, bonus, ...extra });
+const ZONE_BOSS_PETS = [
+  ['goblin', '아기 멧돼지 대장', '🐗', { gold: 0.3 }],
+  ['lizard', '아기 늪 군주', '🐊', { gather: 0.15, prod: 0.1 }],
+  ['ape', '꼬마 협곡 폭군', '🦍', { melee: 0.15, hp: 0.1 }],
+  ['dragon', '아기 화염룡', '🐲', { dmg: 0.15, def: 0.1 }],
+  ['mammoth', '아기 매머드', '🐘', { hp: 0.2, dr: 0.04 }],
+  ['lich', '꼬마 그림자 군주', '👹', { mag: 0.15, ls: 0.02 }],
+  ['tempest', '아기 폭풍 정령', '🌪️', { rng: 0.15, crit: 0.03 }],
+  ['whale', '아기 심연 고래', '🐳', { drop: 0.2, gold: 0.15 }],
+];
+const MONSTER_PETS = [
+  ['caterpillar', '꼬마 애벌레', '🐛', { regen: 0.004 }],
+  ['mosquito', '꼬마 흡혈모기', '🦟', { ls: 0.015 }],
+  ['scorpion', '꼬마 전갈', '🦂', { crit: 0.03 }],
+  ['crab', '용암 꼬마게', '🦀', { def: 0.1 }],
+  ['seal', '얼음 꼬마고래', '🐬', { hp: 0.1 }],
+  ['owl', '밤 부엉이', '🦉', { mag: 0.08 }],
+  ['bee', '거대 꿀벌', '🐝', { rng: 0.08 }],
+  ['squid', '꼬마 오징어', '🦑', { drop: 0.1 }],
+];
+const WEATHER_PETS = {
+  sunny: ['lion', '햇살 사자', '🦁', { melee: 0.1, gold: 0.05 }],
+  wind: ['eagle', '바람 독수리', '🦅', { rng: 0.1, gather: 0.05 }],
+  rain: ['snail', '빗방울 달팽이', '🐌', { xp: 0.1, regen: 0.003 }],
+  cloudy: ['sheep', '구름 양', '🐑', { def: 0.1, prod: 0.05 }],
+  fog: ['ghostcat', '안개 고양이', '🐈', { drop: 0.12, crit: 0.02 }],
+  storm: ['leopard', '번개 표범', '🐆', { dmg: 0.1, crit: 0.02 }],
+  snow: ['snowhare', '눈토끼', '🐇', { hp: 0.12, dr: 0.03 }],
+  heat: ['camel', '사막 낙타', '🐫', { gold: 0.15, regen: 0.003 }],
+};
 export const PETS = [
-  { id: 'dog', name: '강아지', icon: '🐶', src: 'shop', stage: 10, bonus: { atk: 0.08 } },
-  { id: 'turtle', name: '거북이', icon: '🐢', src: 'shop', stage: 15, bonus: { def: 0.12 } },
-  { id: 'cat', name: '고양이', icon: '🐱', src: 'shop', stage: 20, bonus: { gold: 0.15 } },
-  { id: 'chick', name: '병아리', icon: '🐤', src: 'shop', stage: 25, bonus: { regen: 0.01 } },
-  { id: 'rabbit', name: '토끼', icon: '🐰', src: 'shop', stage: 30, bonus: { drop: 0.15 } },
-  { id: 'squirrel', name: '다람쥐', icon: '🐿️', src: 'shop', stage: 35, bonus: { gather: 0.1 } },
-  { id: 'duck', name: '오리', icon: '🦆', src: 'shop', stage: 40, bonus: { prod: 0.1 } },
-  { id: 'horse', name: '조랑말', icon: '🐴', src: 'shop', stage: 50, bonus: { xp: 0.1 } },
-  { id: 'goblin', name: '꼬마 고블린 왕', icon: '👺', src: 'boss', bonus: { gold: 0.35 } },
-  { id: 'lizard', name: '이끼 도마뱀', icon: '🦎', src: 'boss', bonus: { gather: 0.15, prod: 0.1 } },
-  { id: 'lich', name: '꼬마 리치', icon: '💀', src: 'boss', bonus: { atk: 0.15 } },
-  { id: 'dragon', name: '아기 용', icon: '🐲', src: 'boss', bonus: { dmg: 0.2, def: 0.1 } },
-  { id: 'woodpecker', name: '딱따구리', icon: '🐦', src: 'skillboss', bonus: { x_wood: 0.25 } },
-  { id: 'hedgehog', name: '고슴도치', icon: '🦔', src: 'skillboss', bonus: { x_mine: 0.2 } },
-  { id: 'penguin', name: '펭귄', icon: '🐧', src: 'skillboss', bonus: { x_fish: 0.2 } },
-  { id: 'piglet', name: '꼬마 돼지 요리사', icon: '🐷', src: 'skillboss', bonus: { x_cook: 0.12 } },
-  { id: 'ox', name: '대장간 황소', icon: '🐂', src: 'skillboss', bonus: { x_smith: 0.12 } },
-  { id: 'spider', name: '재봉 거미', icon: '🕷️', src: 'skillboss', bonus: { x_craft: 0.12 } },
-  { id: 'frog', name: '약초 개구리', icon: '🐸', src: 'skillboss', bonus: { x_alch: 0.12 } },
-  { id: 'bat', name: '룬 박쥐', icon: '🦇', src: 'skillboss', bonus: { x_arcane: 0.12 } },
-  { id: 'dove', name: '성소 비둘기', icon: '🕊️', src: 'skillboss', bonus: { x_divine: 0.15 } },
-  { id: 'rat', name: '소매치기 쥐', icon: '🐀', src: 'skillboss', bonus: { x_thief: 0.15 } },
-  { id: 'spirit', name: '에테르 정령', icon: '✨', src: 'quest', bonus: { dmg: 0.15, gold: 0.15, xp: 0.1 } },
+  // 상점 16
+  P('dog', '강아지', '🐶', 'shop', { atk: 0.08 }, { stage: 10 }),
+  P('turtle', '거북이', '🐢', 'shop', { def: 0.12 }, { stage: 15 }),
+  P('hamster', '햄스터', '🐹', 'shop', { regen: 0.005 }, { stage: 18 }),
+  P('cat', '고양이', '🐱', 'shop', { gold: 0.15 }, { stage: 20 }),
+  P('chick', '병아리', '🐤', 'shop', { regen: 0.01 }, { stage: 25 }),
+  P('rabbit', '토끼', '🐰', 'shop', { drop: 0.15 }, { stage: 30 }),
+  P('panda', '판다', '🐼', 'shop', { hp: 0.15 }, { stage: 32 }),
+  P('squirrel', '다람쥐', '🐿️', 'shop', { gather: 0.1 }, { stage: 35 }),
+  P('fox', '여우', '🦊', 'shop', { crit: 0.04 }, { stage: 38 }),
+  P('duck', '오리', '🦆', 'shop', { prod: 0.1 }, { stage: 40 }),
+  P('monkey', '원숭이', '🐵', 'shop', { rng: 0.12 }, { stage: 45 }),
+  P('horse', '조랑말', '🐴', 'shop', { xp: 0.1 }, { stage: 50 }),
+  P('koala', '코알라', '🐨', 'shop', { dr: 0.05 }, { stage: 55 }),
+  P('tiger', '호랑이', '🐯', 'shop', { melee: 0.12 }, { stage: 60 }),
+  P('unicorn', '유니콘', '🦄', 'shop', { mag: 0.12 }, { stage: 65 }),
+  P('wolf', '늑대', '🐺', 'shop', { ls: 0.025 }, { stage: 70 }),
+  // 지역 보스 8 + 변이 8 (변이는 스테이지 80 이후)
+  ...ZONE_BOSS_PETS.map(([id, name, icon, bonus], z) => P(id, name, icon, 'boss', bonus, { zone: z })),
+  ...ZONE_BOSS_PETS.map(([id, name, icon, bonus], z) => P(id + '_m', '변이 ' + name, icon, 'boss', Object.fromEntries(Object.entries(bonus).map(([k, v]) => [k, Math.round(v * 1.6 * 1000) / 1000])), { zone: z, mutated: true })),
+  // 생활 스킬 10 (해당 스킬을 하다 보면 아주 드물게)
+  P('woodpecker', '딱따구리', '🐦', 'skill', { x_wood: 0.25 }, { skill: 'wood' }),
+  P('hedgehog', '고슴도치', '🦔', 'skill', { x_mine: 0.2 }, { skill: 'mine' }),
+  P('penguin', '펭귄', '🐧', 'skill', { x_fish: 0.2 }, { skill: 'fish' }),
+  P('piglet', '꼬마 돼지 요리사', '🐷', 'skill', { x_cook: 0.12 }, { skill: 'cook' }),
+  P('ox', '대장간 황소', '🐂', 'skill', { x_smith: 0.12 }, { skill: 'smith' }),
+  P('spider', '재봉 거미', '🕷️', 'skill', { x_craft: 0.12 }, { skill: 'craft' }),
+  P('frog', '약초 개구리', '🐸', 'skill', { x_alch: 0.12 }, { skill: 'alch' }),
+  P('bat', '룬 박쥐', '🦇', 'skill', { x_arcane: 0.12 }, { skill: 'arcane' }),
+  P('dove', '성소 비둘기', '🕊️', 'skill', { x_divine: 0.15 }, { skill: 'divine' }),
+  P('rat', '소매치기 쥐', '🐀', 'skill', { x_thief: 0.15 }, { skill: 'thief' }),
+  // 스킬 보스 3
+  P('sapling', '꼬마 고목', '🌱', 'sboss', { gather: 0.15, x_wood: 0.1 }),
+  P('pebble', '조약돌 거인', '🗿', 'sboss', { def: 0.1, x_mine: 0.1 }),
+  P('krakenling', '아기 크라켄', '🐙', 'sboss', { drop: 0.1, x_fish: 0.1 }),
+  // 일반 몬스터 8 (지역별)
+  ...MONSTER_PETS.map(([id, name, icon, bonus], z) => P(id, name, icon, 'monster', bonus, { zone: z })),
+  // 날씨 8
+  ...Object.entries(WEATHER_PETS).map(([w, [id, name, icon, bonus]]) => P(id, name, icon, 'weather', bonus, { weather: w })),
+  // 계절 4
+  P('blossom', '벚꽃 꿀벌', '🌸', 'season', { gather: 0.12, xp: 0.05 }, { season: 'spring' }),
+  P('sunflower', '해바라기 게', '🌻', 'season', { drop: 0.12, gold: 0.05 }, { season: 'summer' }),
+  P('turkey', '단풍 칠면조', '🦃', 'season', { xp: 0.12, prod: 0.05 }, { season: 'autumn' }),
+  P('reindeer', '눈꽃 순록', '🦌', 'season', { hp: 0.12, def: 0.05 }, { season: 'winter' }),
+  // 원정 퀘스트
+  P('spirit', '에테르 정령', '✨', 'quest', { dmg: 0.15, gold: 0.15, xp: 0.1 }),
 ];
 export const PET = Object.fromEntries(PETS.map((p) => [p.id, p]));
-export const PET_SRC = { shop: '상점', boss: '지역 보스 (1%)', skillboss: '스킬 보스 보상', quest: '원정 퀘스트' };
+export const PET_SRC = {
+  shop: '🛒 상점', boss: '👑 지역 보스 (1%, 변이는 스테이지 80+에서 0.2%)', skill: '⛏️ 생활 스킬 (행동마다 아주 드물게)',
+  sboss: '🐉 스킬 보스 상자', monster: '👾 일반 몬스터 (지역별 0.01%)', weather: '🌦️ 해당 날씨에 사냥 (0.005%)',
+  season: '🍂 해당 계절 주간 퀘스트 보상 (25%)', quest: '🗺️ 원정 퀘스트',
+};
 const BOSS_PET_CHANCE = 0.01;
-const PROD_PETS = ['piglet', 'ox', 'spider', 'frog', 'bat', 'dove', 'rat'];
+const MUTANT_CHANCE = 0.002;
+const MONSTER_PET_CHANCE = 1e-4;
+const WEATHER_PET_CHANCE = 5e-5;
+const SKILL_PET_CHANCE = 1 / 15000;
 
 export const petCost = (p) => goldPerKill(p.stage) * 1000;
 export function hasPet(s, id) { return s.world.pets.owned.includes(id); }
@@ -137,11 +201,31 @@ export function setPet(game, id) {
   if (game.rt.heroDead <= 0) game.rt.heroHp = hpRatio * game.heroMaxHp();
   return true;
 }
-// 지역 보스 처치 시 아직 없는 보스 펫 중 하나
-export function rollBossPet(game) {
-  if (Math.random() >= BOSS_PET_CHANCE) return;
-  const pool = PETS.filter((p) => p.src === 'boss' && !hasPet(game.s, p.id));
-  if (pool.length) givePet(game, pool[Math.floor(Math.random() * pool.length)].id);
+// 처치 시 펫 굴림: 지역 보스 · 일반 몬스터 · 날씨 (모두 드롭률 효과 적용)
+export function rollKillPets(game, m) {
+  const s = game.s;
+  const z = Math.floor((s.stage - 1) / 10) % 8;
+  const lm = game.lootMult();
+  if (m.zoneBoss) {
+    const base = PETS.find((p) => p.src === 'boss' && p.zone === z && !p.mutated);
+    if (base && Math.random() < BOSS_PET_CHANCE * lm) givePet(game, base.id);
+    if (s.stage > 80 && Math.random() < MUTANT_CHANCE * lm) givePet(game, base.id + '_m');
+  } else if (!m.boss) {
+    const mp = PETS.find((p) => p.src === 'monster' && p.zone === z);
+    if (mp && Math.random() < MONSTER_PET_CHANCE * lm) givePet(game, mp.id);
+  }
+  const wp = PETS.find((p) => p.src === 'weather' && p.weather === climate().weather.id);
+  if (wp && Math.random() < WEATHER_PET_CHANCE * lm) givePet(game, wp.id);
+}
+// 생활 스킬 행동마다 해당 스킬 펫 (상위 행동일수록 확률 증가)
+export function rollSkillPet(game, skillId, act) {
+  const p = PETS.find((x) => x.src === 'skill' && x.skill === skillId);
+  if (p && !hasPet(game.s, p.id) && Math.random() < SKILL_PET_CHANCE * (1 + act.lvl / 30)) givePet(game, p.id);
+}
+// 계절 펫: 주간 퀘스트 보상
+export function rollSeasonPet(game) {
+  const p = PETS.find((x) => x.src === 'season' && x.season === climate().season.id);
+  return p && !hasPet(game.s, p.id) && Math.random() < 0.25 && givePet(game, p.id) ? p : null;
 }
 
 // 펫 + 날씨 + 계절 효과 합
@@ -156,11 +240,11 @@ export const SB = { hp: 5e6, tries: 5, unlockStage: 10, unlockLv: 5, milestones:
 export const CHEST_NAMES = ['나무 상자', '구리 상자', '은 상자', '금 상자', '보석 상자', '전설 상자'];
 export const SKILL_BOSSES = [
   { id: 'treant', name: '고목 수호자', icon: '🌳', skill: 'wood', pet: 'woodpecker', desc: '천 년 묵은 나무. 도끼질로만 쓰러뜨릴 수 있습니다.',
-    mats: ['log_oak', 'log_pine', 'log_maple', 'log_yew', 'log_world'], extra: ['herb', 'herb_rare'] },
+    mats: LOOT_POOLS.log, extra: ['herb', 'herb_rare', 'mon_feather'], bossPet: 'sapling' },
   { id: 'golem', name: '바위 거인', icon: '🗿', skill: 'mine', pet: 'hedgehog', desc: '광맥이 뭉쳐 깨어난 거인. 곡괭이로 부숴야 합니다.',
-    mats: ['ore_copper', 'coal', 'ore_iron', 'ore_mithril', 'ore_adamant'], extra: ['gem', 'rune_ess'] },
+    mats: LOOT_POOLS.ore, extra: ['gem', 'rune_ess', 'gem_sapphire', 'gem_emerald'], bossPet: 'pebble' },
   { id: 'leviathan', name: '심해 군주', icon: '🦑', skill: 'fish', pet: 'penguin', desc: '깊은 바다의 주인. 낚싯줄로 끌어올려야 합니다.',
-    mats: ['fish_minnow', 'fish_shrimp', 'fish_tropical', 'fish_puffer', 'fish_shark'], extra: ['gem', 'herb_rare'] },
+    mats: LOOT_POOLS.fish, extra: ['gem', 'herb_rare', 'mon_pearl', 'mon_ink'], bossPet: 'krakenling' },
 ];
 export const SBOSS = Object.fromEntries(SKILL_BOSSES.map((b) => [b.id, b]));
 
@@ -195,24 +279,20 @@ function openChest(game, b, i) {
   game.addGold(gold);
   lines.push(`💰 ${fmt(gold)}`);
   const lv = lifeLevel(s, b.skill);
-  const top = Math.min(b.mats.length - 1, Math.floor(lv / 15));
+  const top = Math.min(b.mats.length - 1, Math.floor((lv * b.mats.length) / 95));
   const q = Math.round((10 + lv) * (i + 1) * rnd(0.8, 1.2));
   const addM = (id, n) => { if (n > 0) { bankAdd(s, id, n); lines.push(`${MATS[id].icon} ${MATS[id].name} x${fmt(n)}`); } };
   addM(b.mats[top], q);
   if (top > 0) addM(b.mats[top - 1], Math.round(q * 0.6));
   addM(b.extra[Math.floor(Math.random() * b.extra.length)], Math.round((i + 1) * rnd(2, 4)));
   // 장비: 상자 단계만큼 등급 하한
-  const item = game.craftItem(SLOT_IDS, Math.min(i, 5), false);
+  const item = game.craftItem(DROP_SLOTS, Math.min(i, 5), false);
   lines.push(`<span style="color:${RARITIES[item.r].color}">[${RARITIES[item.r].name}] ${itemName(item)}</span>`);
   // 펫
+  // 펫: 보스 전용 펫(마지막 상자일수록 높음) + 해당 스킬 펫
   const petChance = [0.01, 0.01, 0.02, 0.04, 0.08, 0.25][i];
-  if (!hasPet(s, b.pet) && Math.random() < petChance) { givePet(game, b.pet); lines.push(`🐾 펫 ${PET[b.pet].icon} ${PET[b.pet].name}!`); }
-  const prodPool = PROD_PETS.filter((id) => !hasPet(s, id));
-  if (prodPool.length && Math.random() < 0.02 * (i + 1)) {
-    const id = prodPool[Math.floor(Math.random() * prodPool.length)];
-    givePet(game, id);
-    lines.push(`🐾 펫 ${PET[id].icon} ${PET[id].name}!`);
-  }
+  if (!hasPet(s, b.bossPet) && Math.random() < petChance) { givePet(game, b.bossPet); lines.push(`🐾 펫 ${PET[b.bossPet].icon} ${PET[b.bossPet].name}!`); }
+  if (!hasPet(s, b.pet) && Math.random() < petChance / 2) { givePet(game, b.pet); lines.push(`🐾 펫 ${PET[b.pet].icon} ${PET[b.pet].name}!`); }
   return lines;
 }
 
@@ -340,7 +420,7 @@ function giveReward(game, r) {
   const lines = [];
   if (r.gold) { game.addGold(r.gold); lines.push(`💰 ${fmt(r.gold)}`); }
   if (r.floor !== undefined) {
-    const item = game.craftItem(SLOT_IDS, r.floor, false);
+    const item = game.craftItem(DROP_SLOTS, r.floor, false);
     lines.push(`[${RARITIES[item.r].name}] ${itemName(item)}`);
   }
   if (r.pet && givePet(game, r.pet)) lines.push(`🐾 ${PET[r.pet].name}`);
@@ -351,7 +431,9 @@ export function claimQuest(game, weekly, idx) {
   const q = (weekly ? s.world.quests.weekly : s.world.quests.daily)[idx];
   if (!q || q.claimed || q.n < q.goal) return null;
   q.claimed = true;
-  return giveReward(game, questReward(s, weekly));
+  const lines = giveReward(game, questReward(s, weekly));
+  if (weekly) { const sp = rollSeasonPet(game); if (sp) lines.push(`🐾 계절 펫 ${sp.icon} ${sp.name}!`); }
+  return lines;
 }
 export function claimChain(game) {
   const s = game.s;

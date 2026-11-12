@@ -19,7 +19,7 @@ export function newState() {
       weapon: { id: 1, slot: 'weapon', kind: 'sword', r: 0, lvl: 1, enh: 0 },
       shield: null, helm: null,
       body: { id: 2, slot: 'body', r: 0, lvl: 1, enh: 0 },
-      legs: null, gloves: null, boots: null, amulet: null, cape: null,
+      legs: null, gloves: null, boots: null, amulet: null, ring1: null, ring2: null, cape: null, off: null,
     },
     inv: [],
     nextId: 3,

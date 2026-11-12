@@ -1,19 +1,20 @@
 // 게임 로직 (DOM 의존 없음 → 테스트/시뮬레이션 가능)
-// 영웅 능력치는 장비(+강화) · 기도 · 물약 · 스킬로만 정해짐
+// 영웅 능력치는 장비(+강화) · 기도 · 물약 · 펫 · 날씨 · 스킬로만 정해짐
+// 전투 방식(근접 · 원거리 · 마법)은 장착한 무기로 결정
 import {
   STAGE_KILLS, BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP,
-  goldPerKill, isZoneBoss, bossGoldMult, monsterStats, maxHitVs, incomingHit,
-  HERO_BASE, CRIT_MULT, VIP, BASE_MIN_HIT, zoneOf, SKILLS, RARITIES, SLOT_IDS, WEAPONS, WEAPON_IDS,
-  ENHANCE_MAX, itemStats, itemScore, itemName, itemSellPrice, enhanceCost, rollRarity,
+  goldPerKill, isZoneBoss, bossGoldMult, monsterStats, maxHitFor, incomingHit,
+  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, zoneOf, SKILLS, RARITIES, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
+  lootTable, isRing,
 } from './data.js';
 import { fmt } from './format.js';
-import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, boneForStage, bankAdd } from './life.js';
-import { worldBonus, worldTick, questEvent, rollBossPet } from './world.js';
+import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS } from './life.js';
+import { worldBonus, worldTick, questEvent, rollKillPets } from './world.js';
 
 const SKILL = Object.fromEntries(SKILLS.map((k) => [k.id, k]));
 export const SPEEDS = [1, 2, 4, 8, 16];
-const DROP_CHANCE = 0.06;          // 일반 몬스터 장비 드롭 확률
-const REGEN = 0.02;                // 초당 체력 회복 (최대 체력 대비)
+const REGEN = 0.02;                // 기본 초당 체력 회복 (최대 체력 대비)
 
 export class Game {
   constructor(state) {
@@ -54,6 +55,7 @@ export class Game {
   // ---------- 능력치 ----------
   weaponDef() { const w = this.s.equip.weapon; return w ? WEAPONS[w.kind || 'sword'] : null; }
   twoHanded() { return !!this.weaponDef()?.twoHand; }
+  style() { return this.weaponDef()?.style || 'melee'; }
 
   // 장비 합산 (장비가 바뀔 때만 다시 계산)
   gearStats() {
@@ -72,16 +74,23 @@ export class Game {
 
   skillActive(id) { return this.rt.skill[id].t > 0; }
 
+  // 최종 능력치: 장비 + (물약 · 기도 · 펫 · 날씨)
   stats() {
     const g = this.gearStats();
     const s = this.s;
-    const atkMult = buffMult(s, 'atk') * (1 + this.bonus('atk'));
+    const all = buffMult(s, 'atk') * (1 + this.bonus('atk'));
+    const melee = all * (1 + this.bonus('melee'));
     return {
-      atk: g.atk * atkMult,
-      str: g.str * atkMult,
+      atk: g.atk * melee,
+      str: g.str * melee,
+      rng: g.rng * all * (1 + this.bonus('rng')),
+      mag: g.mag * all * (1 + this.bonus('mag')),
       def: g.def * (1 + this.bonus('def')),
       hp: g.hp * buffMult(s, 'hp') * (1 + this.bonus('hp')),
-      crit: Math.min(0.75, g.crit),
+      crit: Math.min(STAT_CAPS.crit, g.crit + this.bonus('crit')),
+      ls: Math.min(STAT_CAPS.ls, g.ls + this.bonus('ls')),
+      dr: Math.min(STAT_CAPS.dr, g.dr + this.bonus('dr')),
+      regen: Math.min(STAT_CAPS.regen, g.regen + this.bonus('regen')),
       dmg: 1 + this.bonus('dmg'),
     };
   }
@@ -95,26 +104,29 @@ export class Game {
   // 대상 몬스터 방어를 반영한 한 방 최대 피해
   maxHit(mDef = this.rt.monster?.def || 0) {
     const st = this.stats();
-    return maxHitVs(st.atk, st.str, mDef) * st.dmg;
+    return maxHitFor(this.style(), st, mDef) * st.dmg;
   }
   // 평균 DPS (치명타 포함)
   dpsVs(mDef) {
     const st = this.stats();
-    const mh = maxHitVs(st.atk, st.str, mDef) * st.dmg;
+    const mh = maxHitFor(this.style(), st, mDef) * st.dmg;
     const avg = (mh * (1 + this.minHitFrac())) / 2;
     return avg * (1 + st.crit * (CRIT_MULT - 1)) * this.atkSpeed();
   }
   totalDps() { return this.dpsVs(this.rt.monster?.def ?? monsterStats(this.s.stage).def); }
   // 전투력: 장착 장비 점수 합
   powerScore() {
+    const sty = this.style();
     let sum = 0;
-    for (const slot of SLOT_IDS) if (!(slot === 'shield' && this.twoHanded())) sum += itemScore(this.s.equip[slot]);
+    for (const slot of SLOT_IDS) if (!(slot === 'shield' && this.twoHanded())) sum += itemScore(this.s.equip[slot], sty);
     return sum;
   }
 
   goldMult() {
     return VIP.mult * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
   }
+  // 전리품 확률 배율 (VIP · 펫 · 날씨 · 기도)
+  lootMult() { return VIP.mult * (1 + this.bonus('drop')); }
 
   // ---------- 전투 ----------
   spawn() {
@@ -126,11 +138,12 @@ export class Game {
     let m;
     if (boss) {
       const zb = isZoneBoss(st);
-      m = { e: zone.boss[0], name: zone.boss[1], boss: true, zoneBoss: zb, ...monsterStats(st, zb ? 'zoneBoss' : 'boss') };
+      m = { e: zone.boss[0], name: zone.boss[1], boss: true, zoneBoss: zb, mi: 0, ...monsterStats(st, zb ? 'zoneBoss' : 'boss') };
       rt.bossTime = BOSS_TIME;
     } else {
-      const [e, name] = zone.monsters[Math.floor(Math.random() * zone.monsters.length)];
-      m = { e, name, boss: false, ...monsterStats(st) };
+      const mi = Math.floor(Math.random() * zone.monsters.length);
+      const [e, name] = zone.monsters[mi];
+      m = { e, name, boss: false, mi, ...monsterStats(st) };
       m.hp *= 0.9 + Math.random() * 0.2;
     }
     m.maxHp = m.hp;
@@ -139,6 +152,10 @@ export class Game {
     rt.monAtkTimer = 0;
     rt.respawn = 0;
     rt.spawnT = 0;
+  }
+
+  monsterLoot(m = this.rt.monster) {
+    return lootTable(this.s.stage, m?.mi || 0, m?.zoneBoss ? 'zoneBoss' : m?.boss ? 'boss' : 'normal');
   }
 
   fx(o) {
@@ -162,15 +179,20 @@ export class Game {
     const rt = this.rt;
     const m = rt.monster;
     if (rt.heroDead > 0 || !m || m.dead) return;
+    const st = this.stats();
     const mh = this.maxHit(m.def);
     const lo = mh * this.minHitFrac();
     let dmg = lo + Math.random() * (mh - lo);
-    const crit = Math.random() < this.stats().crit;
+    const crit = Math.random() < st.crit;
     if (crit) dmg *= CRIT_MULT;
     if (isTap) dmg *= 0.5; // 탭은 절반 피해의 추가 공격
     rt.lunge = 0.15;
     rt.shake = 0.15;
-    this.fx({ type: 'dmg', anchor: 'mon', text: (crit ? '치명! ' : '') + fmt(dmg), crit, tap: isTap });
+    const sty = this.style();
+    const icon = sty === 'ranged' ? '🏹 ' : sty === 'magic' ? '✨ ' : '';
+    this.fx({ type: 'dmg', anchor: 'mon', text: (crit ? '치명! ' : icon) + fmt(dmg), crit, tap: isTap });
+    // 흡혈
+    if (st.ls > 0) rt.heroHp = Math.min(this.heroMaxHp(), rt.heroHp + Math.min(dmg, m.hp) * st.ls);
     this.dealDamage(dmg);
   }
 
@@ -179,6 +201,23 @@ export class Game {
     this.s.stats.taps++;
     questEvent(this.s, 'tap', 1);
     this.heroHit(true);
+  }
+
+  // 전리품 표 굴리기 (항목마다 따로, 확률 x 드롭률 배율)
+  rollLoot(table, boss) {
+    const lm = this.lootMult();
+    const got = [];
+    for (const d of table) {
+      if (Math.random() >= Math.min(1, d.c * lm)) continue;
+      if (d.mat) {
+        const n = d.q[0] + Math.floor(Math.random() * (d.q[1] - d.q[0] + 1));
+        bankAdd(this.s, d.mat, n);
+        got.push(d.mat);
+      } else {
+        this.dropItem(boss ? 4 : 1, d);
+      }
+    }
+    return got;
   }
 
   killMonster() {
@@ -193,17 +232,15 @@ export class Game {
     s.stats.kills++;
     questEvent(s, 'kill', 1);
     if (m.boss) questEvent(s, 'boss', 1);
-    if (m.zoneBoss) { questEvent(s, 'zoneBoss', 1); rollBossPet(this); }
+    if (m.zoneBoss) questEvent(s, 'zoneBoss', 1);
+    rollKillPets(this, m);
     this.fx({ type: 'gold', anchor: 'mon', text: '+' + fmt(gold), life: 1.1 });
 
-    // 신성술 재료: 뼈
-    if (m.boss) this.addBones(m.zoneBoss ? 8 : 4);
-    else if (Math.random() < 0.3) this.addBones(1);
-
-    // 장비: 보스는 여러 번 굴려 가장 좋은 등급
+    // 전리품: 몬스터별 표 + 보스는 추가로 고등급 장비
+    const got = this.rollLoot(this.monsterLoot(m), m.boss);
+    if (got.length) this.fx({ type: 'loot', anchor: 'mon', text: got.slice(0, 3).map((id) => MATS[id]?.icon || '').join(''), life: 1.1 });
     if (m.zoneBoss) { this.dropItem(8); this.dropItem(4); }
     else if (m.boss) this.dropItem(4);
-    else if (Math.random() < DROP_CHANCE * VIP.mult * (1 + this.bonus('drop'))) this.dropItem(1);
 
     if (m.boss) {
       s.stats.bossKills++;
@@ -293,57 +330,82 @@ export class Game {
   }
 
   // ---------- 장비 ----------
-  newItem(slot, r, lvl) {
+  // spec: { slot, kind?, aff? } 정해진 장비, 없으면 무작위
+  newItem(slot, r, lvl, spec = {}) {
     const s = this.s;
     const item = { id: s.nextId++, slot, r, lvl: Math.max(1, lvl), enh: 0 };
-    if (slot === 'weapon') item.kind = WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
+    if (slot === 'weapon') item.kind = spec.kind || WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
+    if (AFF_SLOTS.includes(slot)) {
+      // 성향: 지정값 → 아니면 60% 확률로 지금 전투 방식
+      item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
+    }
+    // 영웅 등급 이상: 특수 옵션 1개 (등급이 높으면 더 강함)
+    if (r >= 3) {
+      const keys = Object.keys(SPECIALS);
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      item.sp = { [k]: SPECIALS[k] * (0.7 + Math.random() * 0.6) };
+    }
     s.stats.items++;
     questEvent(s, 'item', 1);
     if (r > (s.stats.bestRarity || 0)) s.stats.bestRarity = r;
     return item;
   }
 
-  dropItem(luck) {
+  dropItem(luck, spec = null) {
     const s = this.s;
     const r = rollRarity(luck);
-    const slot = SLOT_IDS[Math.floor(Math.random() * SLOT_IDS.length)];
-    const item = this.newItem(slot, r, s.stage);
+    const slot = spec?.slot || DROP_SLOTS[Math.floor(Math.random() * DROP_SLOTS.length)];
+    const item = this.newItem(slot, r, s.stage, spec || {});
     this.fx({ type: 'loot', anchor: 'mon', text: '📦', color: RARITIES[r].color, life: 1.2 });
     if (r >= 4) this.toast(`${RARITIES[r].name} 장비 획득! ${itemName(item)}`, r >= 6 ? 'legend' : 'epic');
     this.giveItem(item);
   }
 
-  // 생활 스킬(대장기술·제작)로 만든 장비: 역대 최고 스테이지 레벨, 최소 등급 보장
+  // 생활 스킬(대장기술·제작)로 만든 장비: 역대 최고 스테이지 레벨, 최소 등급 보장, 성향은 지금 전투 방식
   craftItem(slots, floor, notify = true) {
     const slot = slots[Math.floor(Math.random() * slots.length)];
     const r = Math.max(floor, rollRarity(2));
-    const item = this.newItem(slot, r, this.s.maxStage);
+    const spec = slot === 'weapon' ? { kind: this.randomKindOfStyle() } : { aff: this.style() };
+    const item = this.newItem(slot, r, this.s.maxStage, spec);
     questEvent(this.s, 'craft', 1);
     if (notify) this.toast(`제작 완료: [${RARITIES[r].name}] ${itemName(item)}`, r >= 6 ? 'legend' : r >= 4 ? 'epic' : 'good');
     this.giveItem(item);
     return item;
   }
-
-  // 지역(20스테이지 단위)마다 다른 뼈
-  addBones(n) {
-    bankAdd(this.s, boneForStage(this.s.stage), n);
+  randomKindOfStyle() {
+    const sty = this.style();
+    const kinds = WEAPON_IDS.filter((k) => WEAPONS[k].style === sty);
+    return kinds[Math.floor(Math.random() * kinds.length)];
   }
 
-  // 장착했을 때의 전투력 변화 (양손검 ↔ 방패 관계 포함)
+  // 반지는 두 칸 중 약한 쪽(빈 칸 우선)에 비교
+  targetSlot(item) {
+    if (!isRing(item.slot)) return item.slot;
+    const eq = this.s.equip;
+    if (!eq.ring1) return 'ring1';
+    if (!eq.ring2) return 'ring2';
+    const sty = this.style();
+    return itemScore(eq.ring1, sty) <= itemScore(eq.ring2, sty) ? 'ring1' : 'ring2';
+  }
+
+  // 장착했을 때의 전투력 변화 (양손 무기 ↔ 방패 관계 포함)
   upgradeGain(item) {
     const eq = this.s.equip;
-    if (item.slot === 'shield') return this.twoHanded() ? -1 : itemScore(item) - itemScore(eq.shield);
+    const sty = this.style();
+    if (item.slot === 'shield') return this.twoHanded() ? -1 : itemScore(item, sty) - itemScore(eq.shield, sty);
     if (item.slot === 'weapon') {
       const newTwo = !!WEAPONS[item.kind || 'sword'].twoHand;
-      const shieldNow = this.twoHanded() ? 0 : itemScore(eq.shield);
-      const shieldAfter = newTwo ? 0 : itemScore(eq.shield);
-      return itemScore(item) + shieldAfter - itemScore(eq.weapon) - shieldNow;
+      const shieldNow = this.twoHanded() ? 0 : itemScore(eq.shield, sty);
+      const shieldAfter = newTwo ? 0 : itemScore(eq.shield, sty);
+      return itemScore(item, sty) + shieldAfter - itemScore(eq.weapon, sty) - shieldNow;
     }
-    return itemScore(item) - itemScore(eq[item.slot]);
+    return itemScore(item, sty) - itemScore(eq[this.targetSlot(item)], sty);
   }
 
   giveItem(item) {
-    if (this.s.settings.autoEquip && this.upgradeGain(item) > 0) this.putOn(item);
+    // 다른 전투 방식의 무기는 자동 장착하지 않음 (직접 바꾸기)
+    const otherStyle = item.slot === 'weapon' && this.s.equip.weapon && itemStyle(item) !== this.style();
+    if (this.s.settings.autoEquip && !otherStyle && this.upgradeGain(item) > 0) this.putOn(item);
     else this.stash(item);
     this.rt.invDirty = true;
   }
@@ -351,8 +413,10 @@ export class Game {
   putOn(item) {
     const s = this.s;
     const hpRatio = this.rt.heroHp / this.heroMaxHp();
-    const prev = s.equip[item.slot];
-    s.equip[item.slot] = item;
+    const slot = this.targetSlot(item);
+    item.slot = slot;
+    const prev = s.equip[slot];
+    s.equip[slot] = item;
     if (prev) this.stash(prev, true);
     this.dirtyStats();
     if (this.rt.heroDead <= 0) this.rt.heroHp = Math.min(this.heroMaxHp(), hpRatio * this.heroMaxHp());
@@ -444,16 +508,26 @@ export class Game {
     s.stats.kills += Math.floor(kills);
     questEvent(s, 'kill', Math.floor(kills));
     s.stats.playTime += t;
-    // 오프라인 동안 뼈와 장비도 일부 획득
-    const bones = Math.floor(kills * 0.3);
-    if (bones > 0) this.addBones(bones);
-    const drops = Math.min(20, Math.floor(kills * DROP_CHANCE * VIP.mult * (1 + this.bonus('drop'))));
-    for (let i = 0; i < drops; i++) {
-      this.giveItem(this.newItem(SLOT_IDS[Math.floor(Math.random() * SLOT_IDS.length)], rollRarity(1), s.stage));
+    // 전리품: 다섯 몬스터의 표를 고르게 적용한 기댓값
+    const lm = this.lootMult();
+    const per = kills / 5;
+    let mats = 0;
+    let drops = 0;
+    for (let mi = 0; mi < 5; mi++) {
+      for (const d of lootTable(s.stage, mi, 'normal')) {
+        const exp = per * Math.min(1, d.c * lm);
+        if (d.mat) {
+          const n = Math.floor(exp * (d.q[0] + d.q[1]) / 2 + Math.random());
+          if (n > 0) { bankAdd(s, d.mat, n); mats += n; }
+        } else {
+          const n = Math.min(4, Math.floor(exp + Math.random()));
+          for (let i = 0; i < n && drops < 20; i++, drops++) this.giveItem(this.newItem(d.slot, rollRarity(1), s.stage, d));
+        }
+      }
     }
     const life = newLifeLog();
     lifeUpdate(this, t, life);
-    return { sec: t, gold, kills: Math.floor(kills), drops, bones, life };
+    return { sec: t, gold, kills: Math.floor(kills), drops, bones: mats, life };
   }
 
   // ---------- 메인 업데이트 ----------
@@ -478,13 +552,14 @@ export class Game {
     for (const f of rt.fx) f.t += dt;
     if (rt.fx.length && rt.fx[0].t > 2) rt.fx = rt.fx.filter((f) => f.t < f.life);
 
-    const maxHp = this.heroMaxHp();
+    const st = this.stats();
+    const maxHp = st.hp;
     if (rt.heroDead > 0) {
       rt.heroDead -= dt;
       if (rt.heroDead <= 0) rt.heroHp = maxHp;
       return;
     }
-    rt.heroHp = Math.min(maxHp, rt.heroHp + maxHp * (REGEN + this.bonus('regen')) * dt);
+    rt.heroHp = Math.min(maxHp, rt.heroHp + maxHp * (REGEN + st.regen) * dt);
     autoEat(this);
 
     if (rt.respawn > 0) {
@@ -508,11 +583,11 @@ export class Game {
       if (m.dead) { rt.atkTimer = Math.min(rt.atkTimer, 1); return; }
     }
 
-    // 몬스터 반격
+    // 몬스터 반격 (방어 · 피해 감소 · 철벽)
     rt.monAtkTimer += dt;
     if (rt.monAtkTimer >= m.interval) {
       rt.monAtkTimer -= m.interval;
-      const dmg = incomingHit(m.str, this.stats().def) * (this.skillActive('fortify') ? 0.5 : 1);
+      const dmg = incomingHit(m.str, st.def) * (1 - st.dr) * (this.skillActive('fortify') ? 0.5 : 1);
       rt.heroHp -= dmg;
       this.fx({ type: 'hurt', anchor: 'hero', text: '-' + fmt(dmg), life: 0.8 });
       if (rt.heroHp <= 0) this.heroDie();
