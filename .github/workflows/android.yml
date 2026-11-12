@@ -47,7 +47,16 @@ jobs:
           mkdir -p assets
           cp www/icons/icon-512.png assets/icon-only.png
           cp www/icons/icon-512.png assets/icon-foreground.png
+          cp tools/android/icon-background.png assets/icon-background.png
           npx --yes @capacitor/assets@3.0.5 generate --android --iconBackgroundColor '#151225' --iconBackgroundColorDark '#151225' --splashBackgroundColor '#151225' --splashBackgroundColorDark '#151225'
+
+      - name: 아이콘 점검 (빠진 리소스가 있으면 기본 아이콘으로)
+        run: |
+          R=android/app/src/main/res
+          if ! ls $R/mipmap-*/ic_launcher_background.* >/dev/null 2>&1 && ! grep -rq "ic_launcher_background" $R/values* ; then
+            rm -rf $R/mipmap-anydpi-v26
+            echo "::warning::적응형 아이콘 배경이 없어 기본 아이콘 구성으로 대체"
+          fi
 
       - name: 버전 · 세로 화면 설정
         run: |
