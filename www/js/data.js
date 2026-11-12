@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.4.0';
+export const VERSION = '3.5.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -39,7 +39,7 @@ export const STYLES = {
 };
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
-export const STAT_CAPS = { crit: 0.75, ls: 0.2, dr: 0.6, regen: 0.05 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.2, dr: 0.6, regen: 0.05, pen: 0.6, spd: 1 };
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -340,41 +340,82 @@ export function itemScore(it, style = 'melee') {
 }
 
 // ---- 잠재능력 (큐브) ----
-// 장비마다 잠재능력 3줄. 🎲 큐브로 다시 굴림: 등급이 오를 수 있고(레어 → 에픽 → 유니크 → 레전드리),
-// 첫 줄은 지금 등급, 둘째 · 셋째 줄은 20% 확률로 지금 등급 · 아니면 한 단계 아래 수치
-export const POT_TIERS = [
-  { name: '레어', color: '#4da3ff', up: 0.1 },
-  { name: '에픽', color: '#c37bff', up: 0.04 },
-  { name: '유니크', color: '#ffd23d', up: 0.015 },
-  { name: '레전드리', color: '#5ef08a', up: 0 },
-];
-// key: 효과 종류(기도 · 펫과 같은 이름), v: 등급별 수치, w: 나올 가중치
+// 장비 등급과 같은 21단계(일반 → 에테르). 🎲 큐브로 3줄을 다시 굴림: 등급이 오를 수 있고(올라갈수록 확률↓),
+// 같은 등급에서 '천장' 횟수만큼 돌리면 다음 등급 확정. 첫 줄은 지금 등급, 둘째 · 셋째 줄은 20% 확률로 지금 등급 · 아니면 한 단계 아래
+export const POT_MULT = (t) => 1 + 0.45 * t; // 등급별 수치 배율 (일반 x1 → 에테르 x10)
+export const POT_TIERS = RARITIES.map((r, t) => {
+  const last = t === RARITIES.length - 1;
+  const up = last ? 0 : 0.1 * 0.76 ** t;
+  return { name: r.name, color: r.color, mult: POT_MULT(t), up, pity: last ? 0 : Math.ceil(1.5 / up) };
+});
+// key: 효과 종류(기도 · 펫과 같은 이름), b: 일반 등급 수치(등급 배율을 곱함), w: 나올 가중치
 export const POT_LINES = [
-  { key: 'melee', v: [0.03, 0.06, 0.09, 0.12], w: 10 },
-  { key: 'rng', v: [0.03, 0.06, 0.09, 0.12], w: 10 },
-  { key: 'mag', v: [0.03, 0.06, 0.09, 0.12], w: 10 },
-  { key: 'atk', v: [0.02, 0.04, 0.06, 0.09], w: 6 },
-  { key: 'def', v: [0.04, 0.07, 0.1, 0.14], w: 8 },
-  { key: 'hp', v: [0.04, 0.07, 0.1, 0.14], w: 8 },
-  { key: 'crit', v: [0.01, 0.02, 0.03, 0.04], w: 6 },
-  { key: 'ls', v: [0.003, 0.006, 0.01, 0.015], w: 4 },
-  { key: 'dr', v: [0.01, 0.02, 0.03, 0.04], w: 4 },
-  { key: 'regen', v: [0.001, 0.002, 0.003, 0.004], w: 4 },
-  { key: 'drop', v: [0.03, 0.05, 0.08, 0.12], w: 4 },
-  { key: 'gold', v: [0.04, 0.07, 0.1, 0.15], w: 4 },
+  { key: 'melee', b: 0.015, w: 10 },
+  { key: 'rng', b: 0.015, w: 10 },
+  { key: 'mag', b: 0.015, w: 10 },
+  { key: 'atk', b: 0.01, w: 6 },
+  { key: 'def', b: 0.02, w: 8 },
+  { key: 'hp', b: 0.02, w: 8 },
+  { key: 'crit', b: 0.005, w: 6 },
+  { key: 'ls', b: 0.0015, w: 4 },
+  { key: 'dr', b: 0.005, w: 4 },
+  { key: 'regen', b: 0.0005, w: 4 },
+  { key: 'drop', b: 0.015, w: 4 },
+  { key: 'gold', b: 0.02, w: 4 },
+  // 특수 옵션: 부위마다 정해진 것만, 정해진 등급부터 나옴 (POT_SPECIAL)
+  { key: 'dmg', b: 0.008, w: 3, sp: true },
+  { key: 'boss', b: 0.02, w: 3, sp: true },
+  { key: 'pen', b: 0.008, w: 3, sp: true },
+  { key: 'cdmg', b: 0.02, w: 3, sp: true },
+  { key: 'spd', b: 0.006, w: 3, sp: true },
 ];
-const POT_W = POT_LINES.reduce((a, l) => a + l.w, 0);
-function potLine(tier, rnd) {
-  let x = rnd() * POT_W;
-  let l = POT_LINES[0];
-  for (const c of POT_LINES) { x -= c.w; if (x < 0) { l = c; break; } }
-  return [l.key, l.v[tier]];
+// 부위별 특수 옵션: [효과, 나오기 시작하는 등급(장비 등급 표 기준 번호)]
+export const POT_SPECIAL = {
+  weapon: [['dmg', 3], ['boss', 4], ['pen', 4]],
+  shield: [['dmg', 4], ['boss', 5]],
+  helm: [['cdmg', 3], ['pen', 5]],
+  body: [['dmg', 4], ['boss', 5]],
+  legs: [['dmg', 4], ['spd', 6]],
+  gloves: [['cdmg', 3], ['boss', 4], ['spd', 5]],
+  boots: [['spd', 4], ['cdmg', 5]],
+  amulet: [['boss', 3], ['cdmg', 4]],
+  ring1: [['pen', 4], ['dmg', 5]],
+  ring2: [['pen', 4], ['dmg', 5]],
+  cape: [['boss', 4], ['spd', 5]],
+  off: [['dmg', 3], ['pen', 4]],
+};
+// 잠금: 잠근 줄 수에 따라 큐브(또는 골드) 소모 배수
+export const POT_LOCK_COST = [1, 3, 8];
+export const potValue = (key, t) => {
+  const l = POT_LINES.find((x) => x.key === key);
+  return l ? Math.round(l.b * POT_MULT(t) * 1e4) / 1e4 : 0;
+};
+// 이 부위 · 등급에서 나올 수 있는 옵션 (같은 옵션이 여러 줄에 겹쳐 나올 수 있음)
+export function potPool(slot, tier) {
+  const sp = new Set((POT_SPECIAL[slot] || []).filter(([, m]) => tier >= m).map(([k]) => k));
+  return POT_LINES.filter((l) => !l.sp || sp.has(l.key));
 }
-// 지금 등급 t로 3줄 굴림 (등급 상승 판정 포함)
-export function rollPot(t = 0, rnd = Math.random) {
-  if (t < POT_TIERS.length - 1 && rnd() < POT_TIERS[t].up) t++;
-  const lines = [potLine(t, rnd)];
-  for (let i = 0; i < 2; i++) lines.push(potLine(rnd() < 0.2 || t === 0 ? t : t - 1, rnd));
+function potLine(tier, rnd, slot) {
+  const pool = potPool(slot, tier);
+  let x = rnd() * pool.reduce((a, l) => a + l.w, 0);
+  let l = pool[0];
+  for (const c of pool) { x -= c.w; if (x < 0) { l = c; break; } }
+  return [l.key, potValue(l.key, tier)];
+}
+// 등급이 오를 때 기존 줄 수치를 새 등급 기준으로 끌어올림 (첫 줄은 지금 등급, 나머지는 한 단계 아래 이상)
+export function liftLine([k, v], i, t) {
+  return [k, Math.max(v, potValue(k, i === 0 ? t : Math.max(0, t - 1)))];
+}
+// 지금 등급 t로 3줄 굴림 (등급 상승 판정 포함, force면 천장으로 확정 상승)
+// keep: 잠근 줄 [i] = 기존 줄 (그대로 유지)
+export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep = []) {
+  if (t < POT_TIERS.length - 1 && (force || rnd() < POT_TIERS[t].up)) t++;
+  const lines = [];
+  for (let i = 0; i < 3; i++) {
+    // 잠근 줄은 옵션 그대로, 등급이 오르면 수치도 새 등급만큼 오름
+    if (keep[i]) { lines.push(liftLine(keep[i], i, t)); continue; }
+    lines.push(potLine(i === 0 || rnd() < 0.2 || t === 0 ? t : t - 1, rnd, slot));
+  }
   return { t, lines };
 }
 // 잠재능력 합 (장착 장비)
@@ -384,7 +425,7 @@ export function potSum(items) {
   return out;
 }
 // 비교 점수에 쓰는 잠재능력 가치 (대략적인 전투력 환산)
-const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 20, drop: 0.3, gold: 0.3 };
+const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 20, drop: 0.3, gold: 0.3, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
 export function potScore(it, style) {
   if (!it?.pot) return 0;
   const X = 60 * power(it.lvl);

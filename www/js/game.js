@@ -4,7 +4,7 @@
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
-  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, potSum, POT_TIERS, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
@@ -108,26 +108,31 @@ export class Game {
       dr: Math.min(STAT_CAPS.dr, g.dr + this.bonus('dr')),
       regen: Math.min(STAT_CAPS.regen, g.regen + this.bonus('regen')),
       dmg: 1 + this.bonus('dmg'),
+      // 잠재능력 특수 옵션
+      boss: this.bonus('boss'),
+      pen: Math.min(STAT_CAPS.pen, this.bonus('pen')),
+      cdmg: CRIT_MULT + this.bonus('cdmg'),
+      spd: Math.min(STAT_CAPS.spd, this.bonus('spd')),
     };
   }
 
   heroMaxHp() { return this.stats().hp; }
   atkSpeed() {
-    return (this.weaponDef()?.speed || 1) * buffMult(this.s, 'speed');
+    return (this.weaponDef()?.speed || 1) * buffMult(this.s, 'speed') * (1 + this.stats().spd);
   }
   minHitFrac() { return BASE_MIN_HIT + (this.weaponDef()?.minHit || 0); }
 
   // 대상 몬스터 방어를 반영한 한 방 최대 피해
-  maxHit(mDef = this.rt.monster?.def || 0) {
+  maxHit(mDef = this.rt.monster?.def || 0, boss = !!this.rt.monster?.boss) {
     const st = this.stats();
-    return maxHitFor(this.style(), st, mDef) * st.dmg;
+    return maxHitFor(this.style(), st, mDef * (1 - st.pen)) * st.dmg * (boss ? 1 + st.boss : 1);
   }
   // 평균 DPS (치명타 포함)
   dpsVs(mDef) {
     const st = this.stats();
-    const mh = maxHitFor(this.style(), st, mDef) * st.dmg;
+    const mh = this.maxHit(mDef);
     const avg = (mh * (1 + this.minHitFrac())) / 2;
-    return avg * (1 + st.crit * (CRIT_MULT - 1)) * this.atkSpeed();
+    return avg * (1 + st.crit * (st.cdmg - 1)) * this.atkSpeed();
   }
   totalDps() { return this.dpsVs(this.rt.monster?.def ?? monsterStats(this.s.stage).def); }
   // 전투력: 장착 장비 점수 합
@@ -212,11 +217,11 @@ export class Game {
     const m = rt.monster;
     if (rt.heroDead > 0 || !m || m.dead) return;
     const st = this.stats();
-    const mh = this.maxHit(m.def);
+    const mh = this.maxHit(m.def, m.boss);
     const lo = mh * this.minHitFrac();
     let dmg = lo + Math.random() * (mh - lo);
     const crit = Math.random() < st.crit;
-    if (crit) dmg *= CRIT_MULT;
+    if (crit) dmg *= this.stats().cdmg;
     if (isTap) dmg *= 0.5; // 탭은 절반 피해의 추가 공격
     rt.lunge = 0.15;
     rt.shake = 0.15;
@@ -354,8 +359,8 @@ export class Game {
   // 지금 대상 몬스터 기준으로 전투를 계산: 처치 시간 · 받는 피해 · 회복 → '분당 처치 수'(죽음 포함)
   combatCalc(st, style, m) {
     const wd = this.weaponDef();
-    const mh = maxHitFor(style, st, m.def) * st.dmg;
-    const dps = (mh * (1 + this.minHitFrac())) / 2 * (1 + st.crit * (CRIT_MULT - 1)) * (wd?.speed || 1) * buffMult(this.s, 'speed');
+    const mh = maxHitFor(style, st, m.def * (1 - st.pen)) * st.dmg * (m.boss ? 1 + st.boss : 1);
+    const dps = (mh * (1 + this.minHitFrac())) / 2 * (1 + st.crit * (st.cdmg - 1)) * (wd?.speed || 1) * buffMult(this.s, 'speed') * (1 + st.spd);
     const ttk = m.hp / Math.max(1e-9, dps);
     const inc = (incomingHit(m.str, st.def) * (1 - st.dr)) / m.interval;
     const heal = st.hp * (REGEN + st.regen) + Math.min(dps, m.hp / Math.max(ttk, 0.1)) * st.ls;
@@ -397,28 +402,51 @@ export class Game {
   // ---------- 큐브 (잠재능력) ----------
   // 장착 여부와 상관없이 사용. 🎲 큐브 1개(없으면 골드)로 3줄을 다시 굴림
   // 잠재능력이 없으면 바로 개방, 있으면 새 결과를 보여 주고 '적용' 또는 '유지'를 고름 (등급 상승은 어느 쪽이든 유지)
-  cubeCost(it) { return cubeGoldCost(it.lvl); }
+  // 잠근 줄 (잠재능력이 있을 때만, 최대 2줄)
+  potLocks(it) { return it.pot ? (it.potLock || []).filter((i) => i >= 0 && i < 3) : []; }
+  toggleLock(id, i) {
+    const it = this.findItem(id);
+    if (!it?.pot) return false;
+    const L = new Set(it.potLock || []);
+    if (L.has(i)) L.delete(i);
+    else if (L.size >= POT_LOCK_COST.length - 1) return false;
+    else L.add(i);
+    it.potLock = [...L].sort();
+    return true;
+  }
+  // 한 번 돌리는 데 드는 큐브 수 · 골드 (잠글수록 비쌈)
+  cubeNeed(it) { return POT_LOCK_COST[this.potLocks(it).length]; }
+  cubeCost(it) { return cubeGoldCost(it.lvl) * this.cubeNeed(it); }
+  canCube(it, payGold = true) {
+    return (this.s.life.bank.cube || 0) >= this.cubeNeed(it) || (payGold && this.s.gold >= this.cubeCost(it));
+  }
   useCube(id, payGold = false) {
     const s = this.s;
     const it = this.findItem(id);
     if (!it) return { ok: false, why: '장비를 찾을 수 없습니다' };
-    if ((s.life.bank.cube || 0) > 0) bankAdd(s, 'cube', -1);
+    const need = this.cubeNeed(it);
+    if ((s.life.bank.cube || 0) >= need) bankAdd(s, 'cube', -need);
     else if (payGold && s.gold >= this.cubeCost(it)) s.gold -= this.cubeCost(it);
-    else return { ok: false, why: '큐브가 없습니다' };
+    else return { ok: false, why: '큐브(또는 골드)가 부족합니다' };
     s.stats.cubes = (s.stats.cubes || 0) + 1;
     const before = it.pot?.t ?? 0;
-    const res = rollPot(before);
+    // 천장: 같은 등급에서 정해진 횟수를 돌리면 다음 등급 확정
+    it.pity = (it.pity || 0) + 1;
+    const pity = POT_TIERS[before].pity;
+    const keep = [];
+    for (const i of this.potLocks(it)) keep[i] = it.pot.lines[i];
+    const res = rollPot(before, Math.random, pity > 0 && it.pity >= pity, it.slot, keep);
+    if (res.t > before) it.pity = 0;
     if (!it.pot) {
       it.pot = res;
       delete it.potNew;
       this.dirtyStats();
     } else {
       it.potNew = res;
-      if (res.t > it.pot.t) { it.pot.t = res.t; this.dirtyStats(); }
+      if (res.t > it.pot.t) { it.pot = { t: res.t, lines: it.pot.lines.map((l, i) => liftLine(l, i, res.t)) }; this.dirtyStats(); }
     }
-    if (res.t > before) this.toast(`잠재능력 등급 상승! ${POT_TIERS[res.t].name}`, res.t >= 2 ? 'legend' : 'epic');
     this.rt.invDirty = true;
-    return { ok: true, item: it, up: res.t > before };
+    return { ok: true, item: it, up: res.t > before, res };
   }
   // accept: true면 새 결과 적용, false면 기존 유지
   decideCube(id, accept) {

@@ -33,6 +33,7 @@ export const BONUS_NAMES = {
   atk: '모든 공격 스탯', melee: '근접', rng: '원거리', mag: '마법', def: '방어', hp: '최대 체력', dmg: '모든 피해',
   gold: '골드', drop: '드롭률', gather: '채집 속도', prod: '가공 속도', xp: '생활 경험치',
   regen: '초당 체력 회복', ls: '흡혈', dr: '피해 감소', crit: '치명타',
+  boss: '보스 피해', pen: '방어 무시', cdmg: '치명타 피해', spd: '공격 속도',
 };
 const FLAT = ['regen', 'ls', 'dr', 'crit'];
 export function bonusText(b) {

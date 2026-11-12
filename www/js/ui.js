@@ -1,6 +1,6 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  STYLE_IDS, POT_TIERS, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
+  STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_LOCK_COST, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
@@ -12,7 +12,7 @@ import {
   TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
 import {
-  climate, bonusText, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
+  climate, bonusText, BONUS_NAMES, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
   SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
   CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
   museumTotals, museumProgress, museumLevel, museumNext, museumScale, zoneSetLevel, donate,
@@ -242,7 +242,9 @@ export class UI {
       ['🔮 마법' + mark('magic'), (st) => exact(st.mag)],
       ['🛡️ 방어', (st) => exact(st.def)],
       ['❤️ 체력', (st) => `${exact(Math.max(0, g.rt.heroHp))} / ${exact(st.hp)}`],
-      ['🎯 치명타', (st) => pct(st.crit) + ' · x' + CRIT_MULT],
+      ['🎯 치명타', (st) => pct(st.crit) + ' · 피해 x' + st.cdmg.toFixed(2)],
+      ['👑 보스 피해', (st) => '+' + pct(st.boss)],
+      ['🪓 방어 무시', (st) => pct(st.pen)],
       ['🧛 흡혈', (st) => pct(st.ls)],
       ['🧱 피해 감소', (st) => pct(st.dr)],
       ['💚 초당 회복', (st) => pct(0.02 + st.regen)],
@@ -316,6 +318,7 @@ export class UI {
   showTab(id, keepScroll = false) {
     const scroll = this.dom.panel.scrollTop;
     this.tab = id;
+    document.body.classList.toggle('tab-gear', id === 'gear');
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
     this.dom.panel.innerHTML = '';
     this.updaters = [];
@@ -461,6 +464,7 @@ export class UI {
       seg.appendChild(b);
     }
     panel.appendChild(seg);
+    if (this.gearView === 'bag') this.paperDoll(panel);
     // 정확한 능력치 (접어 둘 수 있음)
     const sbox = h('details', 'card gearstats');
     this.gearStatsOpen ??= false;
@@ -503,50 +507,207 @@ export class UI {
     for (const it of sorted) panel.appendChild(this.itemCard(it, false));
   }
 
-  // 큐브 창: 장착 여부와 상관없이 장비 잠재능력 다시 굴리기
+  // 큐브 탭: 장착 · 가방 장비 목록 → 누르면 큐브 창
   gearCube(panel) {
     const g = this.game;
     const s = g.s;
     const all = [...SLOT_IDS.map((sl) => s.equip[sl]).filter(Boolean), ...s.inv];
+    panel.appendChild(h('div', 'card note', `🎲 잠재 큐브 <b>${exact(s.life.bank.cube || 0)}</b>개 · 장비를 누르면 큐브 창이 열립니다. 잠재능력 등급은 장비 등급과 같은 ${POT_TIERS.length}단계이고, 같은 등급에서 일정 횟수를 돌리면 다음 등급이 확정(천장)됩니다. 부위마다 정해진 등급부터 특수 옵션(모든 피해 · 보스 피해 · 방어 무시 · 치명타 피해 · 공격 속도)이 나오고, 같은 옵션이 여러 줄에 겹쳐 나올 수 있습니다.`));
     if (!all.length) { panel.appendChild(h('div', 'muted center pad', '장비가 없습니다')); return; }
-    if (!this.cubeSel || !g.findItem(this.cubeSel)) this.cubeSel = all[0].id;
-    const it = g.findItem(this.cubeSel);
-    const potHtml = (pot) => (pot ? `<div class="potbox" style="--pc:${POT_TIERS[pot.t].color}"><div class="pottier">${POT_TIERS[pot.t].name}</div>${pot.lines.map(([k, v]) => `<div>${bonusText({ [k]: v })}</div>`).join('')}</div>` : '<div class="potbox empty">잠재능력 없음 (큐브를 쓰면 개방)</div>');
-    const rar = RARITIES[it.r];
-    const top = h('div', 'card cubecard', `
-      <div class="cubehead"><span class="iicon">${it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon}</span>
-        <div><b style="color:${rar.color}">[${rar.name}] ${itemName(it)}</b> <small>Lv${it.lvl}</small>${g.findEquipped(it.id) ? ' <span class="stag">장착 중</span>' : ''}
-        <div class="muted">${statText(itemStats(it))}</div></div></div>
-      <div class="potcols"><div><div class="muted">지금 잠재능력</div>${potHtml(it.pot)}</div>${it.potNew ? `<div><div class="muted">새 결과</div>${potHtml(it.potNew)}</div>` : ''}</div>
-      <div class="cubebtns"></div>
-      <div class="muted lnote">🎲 잠재 큐브 보유 ${exact(s.life.bank.cube || 0)}개 · 없으면 💰 ${fmt(g.cubeCost(it))} · 등급 상승 확률: ${POT_TIERS.slice(0, 3).map((p, i) => `${p.name}→${POT_TIERS[i + 1].name} ${(p.up * 100).toFixed(1)}%`).join(' · ')} · 첫 줄은 지금 등급, 둘째 · 셋째 줄은 20% 확률로 지금 등급</div>`);
-    const btns = $('.cubebtns', top);
-    const roll = h('button', 'btn primary', (s.life.bank.cube || 0) > 0 ? '🎲 큐브 사용' : `🎲 골드로 돌리기 (💰 ${fmt(g.cubeCost(it))})`);
-    setDisabled(roll, !((s.life.bank.cube || 0) > 0 || s.gold >= g.cubeCost(it)));
-    roll.addEventListener('click', () => {
-      const r = g.useCube(it.id, true);
-      if (!r.ok) this.toast(r.why, 'bad');
-      this.showTab('gear', true);
-    });
-    btns.appendChild(roll);
-    if (it.potNew) {
-      const ok = h('button', 'btn', '✅ 새 결과 적용');
-      ok.addEventListener('click', () => { g.decideCube(it.id, true); this.showTab('gear', true); });
-      const keep = h('button', 'btn', '↩️ 기존 유지');
-      keep.addEventListener('click', () => { g.decideCube(it.id, false); this.showTab('gear', true); });
-      btns.append(ok, keep);
-    }
-    panel.appendChild(top);
-    panel.appendChild(h('div', 'section-title', '장비 고르기 (장착 · 가방 전부)'));
     for (const x of all) {
       const r = RARITIES[x.r];
       const eq = g.findEquipped(x.id);
-      const b = h('button', 'cuberow' + (x.id === it.id ? ' on' : ''), `
-        <span class="ci">${x.slot === 'weapon' ? WICON[x.kind || 'sword'] : SLOTS[x.slot].icon}</span>
+      const b = h('button', 'cuberow', `
+        <span class="ci">${itemIcon(x)}</span>
         <span class="cn"><b style="color:${r.color}">${itemName(x)}</b>${eq ? ' <small>장착</small>' : ''}<small>${x.pot ? `<span style="color:${POT_TIERS[x.pot.t].color}">${POT_TIERS[x.pot.t].name}</span> · ${x.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}` : '잠재능력 없음'}</small></span>`);
-      b.addEventListener('click', () => { this.cubeSel = x.id; this.showTab('gear', true); });
+      b.addEventListener('click', () => this.openCube(x.id));
       panel.appendChild(b);
     }
+  }
+
+  // 큐브 창: 배경을 어둡게 하고 가운데에서 비포 · 애프터 비교, 잠금, 자동 돌리기
+  openCube(id) {
+    const g = this.game;
+    const s = g.s;
+    if (!g.findItem(id)) return;
+    this.closeCube?.();
+    const ov = h('div', 'cubeov');
+    const win = h('div', 'cubewin');
+    ov.appendChild(win);
+    document.body.appendChild(ov);
+    const cfg = (this.cubeCfg ||= { tier: -1, keys: [], n: 1, gold: false });
+    let auto = null;
+    let spinning = false;
+    let opened = null; // 잠재능력이 없던 장비를 처음 연 결과
+    let rolls = 0;
+    const stopAuto = (why) => {
+      if (auto) { clearInterval(auto); auto = null; if (why) this.toast(why, 'good'); }
+    };
+    const close = () => { stopAuto(); ov.remove(); this.closeCube = null; this.showTab(this.tab, true); };
+    this.closeCube = close;
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+
+    const lineRow = (k, v, extra = '') => `<span>${bonusText({ [k]: v })}</span>${extra}`;
+    const potBox = (pot, side, it) => {
+      if (!pot) return `<div class="cpot empty">잠재능력 없음<br><small>한 번 돌리면 열립니다</small></div>`;
+      const T = POT_TIERS[pot.t];
+      const locks = side === 'before' ? g.potLocks(it) : [];
+      const want = new Set(cfg.keys);
+      return `<div class="cpot" style="--pc:${T.color}"><div class="ctier">${T.name}</div>${pot.lines.map(([k, v], i) => {
+        const lk = side === 'before' ? `<button class="lockbtn${locks.includes(i) ? ' on' : ''}" data-i="${i}" title="이 줄 잠그기">${locks.includes(i) ? '🔒' : '🔓'}</button>` : '';
+        return `<div class="cline${want.has(k) ? ' want' : ''}${locks.includes(i) ? ' locked' : ''}">${lineRow(k, v)}${lk}</div>`;
+      }).join('')}</div>`;
+    };
+    const keysFor = (it) => potPool(it.slot, POT_TIERS.length - 1).map((l) => l.key);
+
+    const draw = () => {
+      const it = g.findItem(id);
+      if (!it) { close(); return; }
+      const rar = RARITIES[it.r];
+      const t = it.pot?.t ?? 0;
+      const T = POT_TIERS[t];
+      const need = g.cubeNeed(it);
+      const bank = s.life.bank.cube || 0;
+      const sp = (POT_SPECIAL[it.slot] || []).map(([k, m]) => `${BONUS_NAMES[k]}(${POT_TIERS[m].name}~)`).join(' · ');
+      const after = it.potNew || opened;
+      if (cfg.tier <= t) cfg.tier = -1;
+      win.innerHTML = `
+        <div class="cwhead"><span class="ci">${itemIcon(it)}</span>
+          <div class="cwname"><b style="color:${rar.color}">[${rar.name}] ${itemName(it)}</b> <small>Lv${it.lvl}</small>${g.findEquipped(it.id) ? ' <span class="stag">장착 중</span>' : ''}
+          <div class="muted">${statText(itemStats(it))}</div></div>
+          <button class="btn small cwx">✖</button></div>
+        <div class="cwtier">잠재 등급 <b style="color:${T.color}">${T.name}</b> (${t + 1}/${POT_TIERS.length}) · 수치 x${T.mult.toFixed(2)}
+          ${T.up ? `<br>다음 등급 <b style="color:${POT_TIERS[t + 1].color}">${POT_TIERS[t + 1].name}</b> 확률 ${(T.up * 100).toFixed(2)}% · 천장 <b>${Math.min(it.pity || 0, T.pity)}/${T.pity}</b>
+          <div class="pitybar"><div style="width:${Math.min(100, ((it.pity || 0) / T.pity) * 100)}%;background:${POT_TIERS[t + 1].color}"></div></div>` : '<br>최고 등급입니다'}</div>
+        <div class="cwcols">
+          <div class="cwcol"><div class="cwlab">BEFORE · 지금</div>${potBox(it.pot === after ? null : it.pot, 'before', it)}</div>
+          <div class="cwarrow">➜</div>
+          <div class="cwcol"><div class="cwlab">AFTER · 새 결과</div><div class="afterbox">${after ? potBox(after, 'after', it) : '<div class="cpot empty">🎲 돌려 보세요</div>'}</div></div>
+        </div>
+        <div class="cwbtns">
+          <button class="btn primary cwroll">🎲 돌리기<br><small>${bank >= need ? `큐브 ${need}개` : `💰 ${fmt(g.cubeCost(it))}`}</small></button>
+          <button class="btn cwok"${it.potNew ? '' : ' disabled'}>✅ AFTER 적용</button>
+          <button class="btn cwkeep"${it.potNew ? '' : ' disabled'}>↩️ BEFORE 유지</button>
+        </div>
+        <div class="muted lnote">🎲 보유 큐브 ${exact(bank)}개 · 🔒 잠금 ${g.potLocks(it).length}/2 (잠그면 큐브 x${POT_LOCK_COST[1]} / x${POT_LOCK_COST[2]}) · 등급이 오르면 적용 여부와 상관없이 유지 · 특수 옵션: ${sp || '없음'}</div>
+        <details class="cwauto"${this.cubeAutoOpen ? ' open' : ''}><summary>⏩ 자동 돌리기 · 원하는 결과에서 멈춤</summary>
+          <label>목표 등급 <select class="atier"><option value="-1">설정 안 함</option>${POT_TIERS.map((p, i) => (i > t ? `<option value="${i}"${cfg.tier === i ? ' selected' : ''}>${p.name}</option>` : '')).join('')}</select></label>
+          <div class="muted">원하는 옵션 (여러 개 고르면 그중 하나라도 해당)</div>
+          <div class="chips">${keysFor(it).map((k) => `<button class="chip${cfg.keys.includes(k) ? ' on' : ''}" data-k="${k}">${BONUS_NAMES[k]}</button>`).join('')}</div>
+          <label>원하는 옵션이 <select class="an">${[1, 2, 3].map((n) => `<option value="${n}"${cfg.n === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select> 나오면 멈춤</label>
+          <label class="toggle"><input type="checkbox" class="agold"${cfg.gold ? ' checked' : ''}> 큐브가 떨어지면 골드로 계속</label>
+          <div class="muted">목표 등급과 옵션을 둘 다 고르면 둘 다 만족할 때 멈춥니다.${auto ? ` · 자동 진행 ${rolls}회` : ''}</div>
+          <button class="btn ${auto ? '' : 'primary'} cwauto-btn">${auto ? '■ 멈춤' : '▶ 자동 시작'}</button>
+        </details>`;
+      $('.cwx', win).addEventListener('click', close);
+      $('.cwauto', win).addEventListener('toggle', (e) => { this.cubeAutoOpen = e.target.open; });
+      win.querySelectorAll('.lockbtn').forEach((b) => b.addEventListener('click', () => {
+        if (!g.toggleLock(it.id, Number(b.dataset.i))) this.toast('최대 2줄까지 잠글 수 있습니다', 'bad');
+        draw();
+      }));
+      $('.cwroll', win).addEventListener('click', () => { stopAuto(); roll(true); });
+      $('.cwok', win).addEventListener('click', () => { g.decideCube(it.id, true); opened = null; draw(); });
+      $('.cwkeep', win).addEventListener('click', () => { g.decideCube(it.id, false); opened = null; draw(); });
+      $('.atier', win).addEventListener('change', (e) => { cfg.tier = Number(e.target.value); });
+      $('.an', win).addEventListener('change', (e) => { cfg.n = Number(e.target.value); });
+      $('.agold', win).addEventListener('change', (e) => { cfg.gold = e.target.checked; });
+      win.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => {
+        const k = b.dataset.k;
+        cfg.keys = cfg.keys.includes(k) ? cfg.keys.filter((x) => x !== k) : [...cfg.keys, k];
+        b.classList.toggle('on');
+      }));
+      $('.cwauto-btn', win).addEventListener('click', () => {
+        if (auto) { stopAuto(); draw(); return; }
+        if (cfg.tier < 0 && !cfg.keys.length) { this.toast('목표 등급이나 원하는 옵션을 골라 주세요', 'bad'); return; }
+        rolls = 0;
+        auto = setInterval(() => {
+          const r = roll(false);
+          if (!r) { stopAuto('큐브(또는 골드)가 부족해 멈췄습니다'); draw(); return; }
+          rolls++;
+          if (done(r)) { stopAuto(`🎯 원하는 결과가 나와 멈췄습니다 (${rolls}회)`); }
+          draw();
+        }, 110);
+        draw();
+      });
+    };
+    // 멈춤 조건
+    const done = (res) => {
+      const okT = cfg.tier < 0 || res.t >= cfg.tier;
+      const okK = !cfg.keys.length || res.lines.filter(([k]) => cfg.keys.includes(k)).length >= cfg.n;
+      return okT && okK;
+    };
+    // 한 번 돌리기 (anim: 수동일 때 슬롯처럼 섞이는 연출)
+    const roll = (anim) => {
+      if (spinning) return null;
+      const it = g.findItem(id);
+      if (!it) return null;
+      const had = !!it.pot;
+      // 자동에서는 맞지 않는 새 결과를 버리고 계속
+      if (!anim && it.potNew) g.decideCube(it.id, false);
+      const r = g.useCube(it.id, anim || cfg.gold);
+      if (!r.ok) { if (anim) this.toast(r.why, 'bad'); return null; }
+      opened = had ? null : r.res;
+      if (r.up) this.toast(`잠재능력 등급 상승! ${POT_TIERS[r.res.t].name}`, r.res.t >= 6 ? 'legend' : 'epic');
+      if (anim) {
+        spinning = true;
+        draw();
+        const box = $('.afterbox', win);
+        const keys = keysFor(it);
+        let n = 0;
+        box.classList.add('spin');
+        const tmr = setInterval(() => {
+          if (++n > 7 || !box.isConnected) {
+            clearInterval(tmr);
+            spinning = false;
+            draw();
+            const nb = $('.afterbox', win);
+            if (nb) { nb.classList.add('pop'); if (r.up) nb.classList.add('upflash'); }
+            return;
+          }
+          box.innerHTML = `<div class="cpot" style="--pc:${POT_TIERS[r.res.t].color}"><div class="ctier">${POT_TIERS[r.res.t].name}</div>${[0, 1, 2].map(() => {
+            const k = keys[Math.floor(Math.random() * keys.length)];
+            return `<div class="cline">${lineRow(k, potValue(k, r.res.t))}</div>`;
+          }).join('')}</div>`;
+        }, 55);
+      }
+      return r.res;
+    };
+    draw();
+  }
+
+  // 장착 칸: 몸에 착용하는 위치대로 3 x 4 네모칸 (빈칸 없이)
+  //  망토 · 투구 · 목걸이 / 무기 · 갑옷 · 방패 / 장갑 · 각반 · 보조장비 / 반지 · 장화 · 반지
+  paperDoll(panel) {
+    const g = this.game;
+    const s = g.s;
+    const LAYOUT = ['cape', 'helm', 'amulet', 'weapon', 'body', 'shield', 'gloves', 'legs', 'off', 'ring1', 'boots', 'ring2'];
+    const grid = h('div', 'doll');
+    for (const sl of LAYOUT) {
+      const it = s.equip[sl];
+      const r = it ? RARITIES[it.r] : null;
+      const off = sl === 'shield' && g.twoHanded();
+      const c = h('button', 'dslot' + (it ? ' has' : '') + (this.dollSel === sl ? ' on' : '') + (off ? ' off' : ''), `
+        <span class="dic">${it ? itemIcon(it) : SLOTS[sl].icon}</span>
+        ${it?.enh ? `<span class="denh">+${it.enh}</span>` : ''}
+        ${it?.pot ? `<span class="dpot" style="background:${POT_TIERS[it.pot.t].color}" title="잠재 ${POT_TIERS[it.pot.t].name}"></span>` : ''}
+        <span class="dname">${it ? `<b style="color:${r.color}">${r.name}</b>` : SLOTS[sl].name}</span>`);
+      if (r) c.style.setProperty('--rc', r.color);
+      c.addEventListener('click', () => { this.dollSel = this.dollSel === sl ? null : sl; this.showTab('gear', true); });
+      grid.appendChild(c);
+    }
+    panel.appendChild(grid);
+    const sel = this.dollSel;
+    if (!sel) { panel.appendChild(h('div', 'muted center dollhint', '칸을 누르면 자세히 보기 · 강화 · 큐브')); return; }
+    const it = s.equip[sel];
+    if (!it) {
+      panel.appendChild(h('div', 'card muted center', `${SLOTS[sel].icon} ${SLOTS[sel].name} 칸이 비어 있습니다`));
+      return;
+    }
+    const card = this.itemCard(it, true);
+    const cb = h('button', 'btn small', '🎲 큐브');
+    cb.addEventListener('click', () => this.openCube(it.id));
+    $('.ibtns', card).prepend(cb);
+    panel.appendChild(card);
   }
 
   // 쿠폰 입력 (무제한 사용)
@@ -1267,7 +1428,7 @@ export class UI {
         <li><b>자동 진행</b>을 켜면 같은 몬스터를 ${AUTO_STREAK}마리 잡을 때마다 다음 몬스터 → 보스 → 다음 지역으로 나아가고, 지면 한 단계 물러나 재정비합니다.</li>
         <li>몬스터마다 <b>고유 전리품</b>이 있습니다. 🏛️ 박물관 기증(영구 효과) · 전리품 공예(특수 옵션 장비) · 연금술 · 비전술 · 신성술에 쓰이고, 고기는 요리, 🎁 보물 상자는 창고에서 엽니다.</li>
         <li>전투 방식(<b>근접 · 원거리 · 마법</b>)은 전투 화면 아래에서 직접 고릅니다. 모든 장비에 근접 · 원거리 · 마법 수치가 따로 붙어 있고, 고른 방식의 수치만 피해에 쓰입니다. 영웅 탭의 📊 스탯 분석에서 어떤 방식 · 스탯이 유리한지 볼 수 있습니다.</li>
-        <li>장비 탭의 <b>🎲 큐브</b>로 장비(장착 여부 상관없음)의 잠재능력 3줄을 다시 굴립니다. 큐브는 몬스터 · 보물 상자 · 쿠폰으로 얻고, 없으면 골드로 돌립니다.</li>
+        <li>장비 탭의 <b>🎲 큐브</b>로 장비(장착 여부 상관없음)의 잠재능력 3줄을 다시 굴립니다. 등급은 장비 등급과 같은 21단계, 같은 등급에서 천장 횟수를 채우면 다음 등급 확정. 부위마다 정해진 등급부터 특수 옵션이 나오고 같은 옵션이 겹칠 수 있습니다. 🔒로 원하는 줄을 잠글 수 있지만(최대 2줄) 큐브가 더 듭니다. ⏩ 자동 돌리기는 목표 등급 · 원하는 옵션이 나오면 멈춥니다.</li>
         <li>몬스터마다 <b>전리품 표</b>가 있고 각 항목을 따로 굴립니다. 드롭률 효과(VIP · 펫 · 날씨)는 모든 확률에 곱해집니다.</li>
         <li>영웅의 능력치는 <b>장비</b>로만 정해집니다. 장비는 12부위 · ${RARITIES.length}단계 등급이며, 골드로 강화(+${ENHANCE_MAX})할 수 있습니다.</li>
         <li>최대 피해 = 근접(또는 원거리) x 0.85 - 몬스터 방어 x 0.3 · 마법은 x 0.8 - 방어 x 0.22 · 방어가 높을수록 받는 피해가 줄어듭니다.</li>
@@ -1282,6 +1443,7 @@ export class UI {
 }
 
 const WICON = { sword: '🗡️', blade: '🗡️', great: '⚔️', xbow: '🏹', bow: '🏹', wand: '✨', staff: '🔮' };
+const itemIcon = (it) => (it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon);
 const ZONES_T = ZONES.map((z) => z.name);
 const WEATHER_T = Object.fromEntries(Object.entries(WEATHERS).map(([k, w]) => [k, w.icon + ' ' + w.name]));
 const SEASON_T = Object.fromEntries(SEASONS.map((x) => [x.id, x.icon + ' ' + x.name]));

@@ -1,11 +1,11 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
 import { newWorldState } from './world.js';
-import { WEAPONS } from './data.js';
+import { WEAPONS, potValue } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 export function newState() {
   return {
@@ -49,9 +49,25 @@ function migrate(obj) {
   if ((obj.v || 1) < 2) obj = migrateV1(obj);
   if (obj.v < 3) obj = migrateV2(obj);
   if (obj.v < 4) obj = migrateV3(obj);
+  if (obj.v < 5) obj = migrateV4(obj);
   return obj;
 }
 // v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
+// v4(잠재능력 4등급) → v5(21등급): 레어 · 에픽 · 유니크 · 레전드리 → 희귀 · 영웅 · 전설 · 신화, 수치는 새 표로
+function migrateV4(obj) {
+  const o = { ...obj, v: 5 };
+  const conv = (p) => {
+    if (!p) return p;
+    const t = [2, 3, 4, 5][p.t] ?? 2;
+    return { t, lines: p.lines.map(([k], i) => [k, potValue(k, i === 0 ? t : t - 1)]) };
+  };
+  for (const it of [...Object.values(o.equip || {}), ...(o.inv || [])]) {
+    if (!it) continue;
+    if (it.pot) it.pot = conv(it.pot);
+    if (it.potNew) it.potNew = conv(it.potNew);
+  }
+  return o;
+}
 function migrateV3(obj) {
   const o = { ...obj, v: 4 };
   o.settings = { ...(o.settings || {}), style: WEAPONS[o.equip?.weapon?.kind]?.style || 'melee' };

@@ -576,3 +576,53 @@ textarea.code {
 .coupon .couponrow { display: flex; gap: 6px; margin: 8px 0 6px; }
 .coupon input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, .3); color: inherit; font: inherit; }
 .coupon .ccode { cursor: pointer; color: var(--accent2); }
+
+/* ---- 장착 칸 (몸 위치대로 3 x 4) ---- */
+body.tab-gear .battle { height: 24vh; min-height: 150px; }
+.doll { display: grid; grid-template-columns: repeat(3, minmax(0, 68px)); gap: 6px; justify-content: center; margin: 8px 0 4px; }
+.dslot { position: relative; aspect-ratio: 1 / 1; border-radius: 10px; border: 2px solid var(--line); background: rgba(0, 0, 0, .28); color: inherit; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2px; cursor: pointer; opacity: .6; }
+.dslot.has { opacity: 1; border-color: var(--rc); background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--rc) 22%, transparent), rgba(0, 0, 0, .3) 70%); }
+.dslot.on { box-shadow: 0 0 0 2px #fff, 0 0 12px var(--rc, #fff); }
+.dslot.off { filter: grayscale(1); }
+.dslot .dic { font-size: 26px; line-height: 1; }
+.dslot .dname { font-size: 10px; margin-top: 3px; white-space: nowrap; overflow: hidden; max-width: 100%; }
+.dslot .denh { position: absolute; top: 2px; right: 4px; font-size: 10px; font-weight: 800; color: var(--gold); }
+.dslot .dpot { position: absolute; top: 5px; left: 5px; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+.dollhint { font-size: 11px; margin-bottom: 6px; }
+
+/* ---- 큐브 창 ---- */
+.cubeov { position: fixed; inset: 0; z-index: 40; background: rgba(6, 4, 16, .8); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 12px; animation: tin .15s ease-out; }
+.cubewin { width: min(100%, 440px); max-height: 100%; overflow-y: auto; background: var(--bg2); border: 1px solid var(--accent2); border-radius: 16px; padding: 14px; box-shadow: 0 0 30px rgba(139, 92, 246, .35); }
+.cwhead { display: flex; gap: 10px; align-items: center; }
+.cwhead .ci { font-size: 30px; }
+.cwname { flex: 1; min-width: 0; font-size: 13px; }
+.cwtier { font-size: 12px; margin: 10px 0 4px; line-height: 1.6; }
+.pitybar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .1); overflow: hidden; margin-top: 3px; }
+.pitybar div { height: 100%; }
+.cwcols { display: flex; align-items: stretch; gap: 6px; margin-top: 8px; }
+.cwcol { flex: 1; min-width: 0; }
+.cwarrow { align-self: center; font-size: 18px; color: var(--accent2); }
+.cwlab { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; color: var(--muted); margin-bottom: 3px; text-align: center; }
+.cpot { border: 2px solid var(--pc, var(--line)); border-radius: 10px; padding: 6px; min-height: 108px; font-size: 12px; background: rgba(0, 0, 0, .25); }
+.cpot.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; }
+.ctier { font-weight: 800; color: var(--pc); text-align: center; margin-bottom: 4px; }
+.cline { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 3px 4px; border-radius: 6px; margin-top: 2px; background: rgba(255, 255, 255, .04); }
+.cline.want { background: rgba(74, 222, 128, .2); box-shadow: inset 0 0 0 1px rgba(74, 222, 128, .6); }
+.cline.locked { box-shadow: inset 0 0 0 1px var(--gold); }
+.lockbtn { border: 0; background: none; font-size: 13px; padding: 0 2px; cursor: pointer; opacity: .55; }
+.lockbtn.on { opacity: 1; }
+.afterbox.spin .cpot { filter: blur(.6px); }
+.afterbox.pop .cpot { animation: cpop .3s ease-out; }
+.afterbox.upflash .cpot { animation: cpop .3s ease-out, cflash 1s ease-out; }
+@keyframes cpop { from { transform: scale(.9); } to { transform: scale(1); } }
+@keyframes cflash { 0% { box-shadow: 0 0 30px var(--pc); } 100% { box-shadow: none; } }
+.cwbtns { display: flex; gap: 6px; margin-top: 10px; }
+.cwbtns .btn { flex: 1; padding: 8px 4px; }
+.cwbtns .btn[disabled] { opacity: .4; }
+.cwauto { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; }
+.cwauto summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+.cwauto label { display: block; margin: 6px 0; }
+.cwauto .cwauto-btn { width: 100%; margin-top: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.chip { border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; font-size: 11.5px; padding: 4px 8px; border-radius: 999px; cursor: pointer; }
+.chip.on { border-color: var(--good); background: rgba(74, 222, 128, .2); }
