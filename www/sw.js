@@ -1,5 +1,5 @@
 // 오프라인 실행용 서비스 워커 (게임 파일 수정 시 CACHE 버전을 올리세요)
-const CACHE = 'aether-v1.1.0';
+const CACHE = 'aether-v1.2.0';
 const ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/format.js',
   './js/render.js',
   './js/ui.js',
+  './js/life.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

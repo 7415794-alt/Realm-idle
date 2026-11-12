@@ -6,6 +6,7 @@ import {
   ENHANCE_MAX, itemPct, itemName, itemSellPrice, enhanceCost, prestigeGain,
 } from './data.js';
 import { fmt } from './format.js';
+import { lifeUpdate, autoEat, buffMult, divineMult, newLifeLog } from './life.js';
 
 const HERO = Object.fromEntries(HERO_UPGRADES.map((u) => [u.id, u]));
 const RELIC = Object.fromEntries(RELICS.map((r) => [r.id, r]));
@@ -67,18 +68,19 @@ export class Game {
   skillActive(id) { return this.rt.skill[id].t > 0; }
 
   heroAtk() {
-    return this.heroVal('atk') * this.equipMult('weapon') * (1 + RELIC.sword.per * this.relic('sword')) * this.essenceMult();
+    return this.heroVal('atk') * this.equipMult('weapon') * (1 + RELIC.sword.per * this.relic('sword')) * this.essenceMult()
+      * buffMult(this.s, 'atk') * divineMult(this.s);
   }
   heroMaxHp() {
-    return this.heroVal('hp') * this.equipMult('armor') * (1 + RELIC.shield.per * this.relic('shield'));
+    return this.heroVal('hp') * this.equipMult('armor') * (1 + RELIC.shield.per * this.relic('shield')) * buffMult(this.s, 'hp');
   }
-  atkSpeed() { return this.heroVal('speed') * (this.skillActive('frenzy') ? 2 : 1); }
+  atkSpeed() { return this.heroVal('speed') * (this.skillActive('frenzy') ? 2 : 1) * buffMult(this.s, 'speed'); }
   critChance() { return this.heroVal('crit'); }
   critMult() { return this.heroVal('critDmg') + RELIC.eye.per * this.relic('eye'); }
   compBaseDps(c) { return c.val(this.s.comps[c.id] || 0); }
   compMult() {
     return this.equipMult('accessory') * (1 + RELIC.banner.per * this.relic('banner')) * this.essenceMult()
-      * (this.skillActive('rally') ? 3 : 1);
+      * (this.skillActive('rally') ? 3 : 1) * divineMult(this.s);
   }
   compDps() {
     let sum = 0;
@@ -90,7 +92,7 @@ export class Game {
   }
   totalDps() { return this.heroDps() + this.compDps(); }
   goldMult() {
-    return this.heroVal('goldUp') * (1 + RELIC.grail.per * this.relic('grail')) * (this.skillActive('midas') ? 3 : 1);
+    return this.heroVal('goldUp') * (1 + RELIC.grail.per * this.relic('grail')) * (this.skillActive('midas') ? 3 : 1) * buffMult(this.s, 'gold');
   }
   dropChance() { return 0.05 * (1 + RELIC.clover.per * this.relic('clover')); }
 
@@ -219,6 +221,10 @@ export class Game {
     s.stats.kills++;
     this.fx({ type: 'gold', anchor: 'mon', text: '+' + fmt(gold), life: 1.1 });
 
+    // 신성술 재료: 뼈
+    if (m.boss) this.addBones(m.zoneBoss ? 8 : 4);
+    else if (Math.random() < 0.3) this.addBones(1);
+
     if (m.boss) this.dropItem(m.zoneBoss ? 'zoneBoss' : 'boss');
     else if (Math.random() < this.dropChance()) this.dropItem('normal');
 
@@ -317,6 +323,27 @@ export class Game {
     s.stats.items++;
     this.fx({ type: 'loot', anchor: 'mon', text: '📦', color: RARITIES[r].color, life: 1.2 });
     if (r >= 3) this.toast(`${RARITIES[r].name} 장비 획득! ${itemName(item)}`, r === 4 ? 'legend' : 'epic');
+    this.giveItem(item);
+  }
+
+  // 생활 스킬(대장기술·제작)로 만든 장비: 역대 최고 스테이지 레벨로 생성
+  craftItem(slot, r, notify = true) {
+    const s = this.s;
+    const item = { id: s.nextId++, slot, r, lvl: Math.max(1, s.maxStage), enh: 0 };
+    s.stats.items++;
+    if (notify) this.toast(`제작 완료: ${itemName(item)}`, r >= 4 ? 'legend' : r >= 3 ? 'epic' : 'good');
+    this.giveItem(item);
+    return item;
+  }
+
+  addBones(n) {
+    const b = this.s.life.bank;
+    b.bone = (b.bone || 0) + n;
+  }
+
+  giveItem(item) {
+    const s = this.s;
+    const slot = item.slot;
     const eq = s.equip[slot];
     if (s.settings.autoEquip && (!eq || itemPct(item) > itemPct(eq))) {
       s.equip[slot] = item;
@@ -437,7 +464,9 @@ export class Game {
     this.addGold(gold);
     s.stats.kills += Math.floor(kills);
     s.stats.playTime += t;
-    return { sec: t, gold, kills: Math.floor(kills) };
+    const life = newLifeLog();
+    lifeUpdate(this, t, life);
+    return { sec: t, gold, kills: Math.floor(kills), life };
   }
 
   // ---------- 메인 업데이트 ----------
@@ -445,6 +474,7 @@ export class Game {
     const s = this.s;
     const rt = this.rt;
     s.stats.playTime += dt;
+    lifeUpdate(this, dt);
 
     for (const k of SKILLS) {
       const st = rt.skill[k.id];
@@ -466,6 +496,7 @@ export class Game {
       return;
     }
     rt.heroHp = Math.min(maxHp, rt.heroHp + maxHp * 0.03 * dt);
+    autoEat(this);
 
     if (rt.respawn > 0) {
       rt.respawn -= dt;

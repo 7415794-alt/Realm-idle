@@ -2,10 +2,14 @@
 import {
   HERO_UPGRADES, COMPANIONS, RELICS, SKILLS, SLOTS, SLOT_IDS, RARITIES, STAGE_KILLS, BOSS_TIME,
   INV_MAX, ENHANCE_MAX, PRESTIGE_MIN, GAME_NAME, VERSION,
-  zoneOf, itemPct, itemName, itemSellPrice, enhanceCost, prestigeGain,
+  zoneOf, itemPct, itemName, itemSellPrice, enhanceCost, prestigeGain, goldPerKill,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
+import {
+  LIFE_SKILLS, LIFE, MATS, BUFFS, LIFE_MAX_LV, XP_TABLE, lifeLevel, actionTime, burnChance, stealChance,
+  hasInputs, matValue, startAction, stopAction, usePotion, sellMat, divineMult, describeLog,
+} from './life.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -115,6 +119,7 @@ export class UI {
     this.updateSkills();
     for (const u of this.updaters) u();
     if (this.tab === 'gear' && rt.invDirty) this.showTab('gear', true);
+    if (this.tab === 'life' && this.lifeDirty) this.showTab('life', true);
     rt.invDirty = false;
 
     while (rt.toasts.length) {
@@ -157,7 +162,8 @@ export class UI {
     this.modal('🌙 돌아오셨군요!', `
       <p>자리를 비운 <b>${fmtTime(r.sec)}</b> 동안 원정대가 계속 싸웠습니다.</p>
       <div class="reward">💰 <b>${fmt(r.gold)}</b> 골드</div>
-      <p class="muted">처치 ${fmt(r.kills)} · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>`,
+      <p class="muted">처치 ${fmt(r.kills)} · 최대 오프라인 ${fmtTime(this.game.offlineCapSec())}</p>
+      ${r.life ? lifeLines(r.life) : ''}`,
     [{ label: '받기', cls: 'primary' }]);
   }
 
@@ -210,7 +216,7 @@ export class UI {
     this.dom.panel.innerHTML = '';
     this.updaters = [];
     const fn = {
-      hero: this.tabHero, comp: this.tabComp, gear: this.tabGear, relic: this.tabRelic, more: this.tabMore,
+      hero: this.tabHero, comp: this.tabComp, gear: this.tabGear, life: this.tabLife, relic: this.tabRelic, more: this.tabMore,
     }[id];
     fn.call(this, this.dom.panel);
     for (const u of this.updaters) u();
@@ -384,6 +390,195 @@ export class UI {
     for (const it of sorted) panel.appendChild(this.itemCard(it, false));
   }
 
+  // ---------- 생활 스킬 ----------
+  tabLife(panel) {
+    const g = this.game;
+    const s = g.s;
+    const L = s.life;
+    this.lifeDirty = false;
+    this.lifeView = this.lifeView || 'skills';
+    this.lifeSel = this.lifeSel || L.active?.skill || 'wood';
+
+    // 진행 중인 행동 / 버프
+    const act = h('div', 'card lifeact', `
+      <div class="la-top"><span class="la-text"></span><button class="btn small la-stop">중지</button></div>
+      <div class="lbar"><div></div></div>
+      <div class="la-buffs muted"></div>`);
+    panel.appendChild(act);
+    const laText = $('.la-text', act);
+    const laStop = $('.la-stop', act);
+    const laBar = $('.lbar div', act);
+    const laBuffs = $('.la-buffs', act);
+    laStop.addEventListener('click', () => { stopAction(g); });
+    this.updaters.push(() => {
+      const a = L.active;
+      if (a) {
+        const k = LIFE[a.skill];
+        const ad = k.actions.find((x) => x.id === a.action);
+        setText(laText, `${k.icon} ${k.name} · ${ad.icon} ${ad.name} (${actionTime(s, a.skill, ad).toFixed(1)}초)`);
+        laBar.style.width = (L.progress * 100).toFixed(1) + '%';
+      } else {
+        setText(laText, '쉬는 중 · 아래에서 행동을 골라 시작하세요');
+        laBar.style.width = '0%';
+      }
+      laStop.style.visibility = a ? 'visible' : 'hidden';
+      const bl = Object.entries(L.buffs).filter(([, t]) => t > 0).map(([b, t]) => `${BUFFS[b].name} ${BUFFS[b].label} ${fmtTime(t)}`);
+      setText(laBuffs, bl.length ? '🧪 ' + bl.join(' · ') : '');
+      laBuffs.style.display = bl.length ? '' : 'none';
+    });
+
+    const seg = h('div', 'buybar');
+    for (const [v, label] of [['skills', '🛠️ 스킬'], ['bank', '📦 창고']]) {
+      const b = h('button', this.lifeView === v ? 'on' : '', label);
+      b.addEventListener('click', () => { this.lifeView = v; this.showTab('life'); });
+      seg.appendChild(b);
+    }
+    panel.appendChild(seg);
+
+    if (this.lifeView === 'bank') this.lifeBank(panel);
+    else this.lifeSkills(panel);
+  }
+
+  lifeSkills(panel) {
+    const g = this.game;
+    const s = g.s;
+    const L = s.life;
+
+    const grid = h('div', 'lifegrid');
+    for (const k of LIFE_SKILLS) {
+      const b = h('button', 'lchip' + (k.id === this.lifeSel ? ' sel' : ''), `<span class="lc-i">${k.icon}</span><span class="lc-n">${k.name}</span><span class="lc-l"></span>`);
+      b.addEventListener('click', () => { this.lifeSel = k.id; this.showTab('life', true); });
+      grid.appendChild(b);
+      const lv = $('.lc-l', b);
+      this.updaters.push(() => {
+        setText(lv, 'Lv ' + lifeLevel(s, k.id));
+        b.classList.toggle('running', L.active?.skill === k.id);
+      });
+    }
+    panel.appendChild(grid);
+    const total = h('div', 'muted center');
+    panel.appendChild(total);
+    this.updaters.push(() => setText(total, `총 생활 레벨 ${LIFE_SKILLS.reduce((a, k) => a + lifeLevel(s, k.id), 0)} / ${LIFE_SKILLS.length * LIFE_MAX_LV}`));
+
+    const k = LIFE[this.lifeSel];
+    const head = h('div', 'card lifehead', `
+      <div class="lh-top"><b>${k.icon} ${k.name}</b><span class="tag">${k.kind}</span><span class="lh-lv"></span></div>
+      <div class="lbar xp"><div></div><span></span></div>
+      <p>${k.desc}</p><p class="lh-bonus"></p>`);
+    panel.appendChild(head);
+    const hLv = $('.lh-lv', head);
+    const hBar = $('.lbar div', head);
+    const hTxt = $('.lbar span', head);
+    const hBonus = $('.lh-bonus', head);
+    this.updaters.push(() => {
+      const lv = lifeLevel(s, k.id);
+      const xp = L.xp[k.id] || 0;
+      setText(hLv, `Lv ${lv} / ${LIFE_MAX_LV}`);
+      if (lv >= LIFE_MAX_LV) {
+        hBar.style.width = '100%';
+        setText(hTxt, `최고 레벨 · 경험치 ${fmt(xp)}`);
+      } else {
+        const cur = xp - XP_TABLE[lv];
+        const need = XP_TABLE[lv + 1] - XP_TABLE[lv];
+        hBar.style.width = (cur / need * 100).toFixed(1) + '%';
+        setText(hTxt, `${fmt(cur)} / ${fmt(need)} XP`);
+      }
+      setText(hBonus, k.id === 'divine' ? `현재 보너스: 모든 피해 x${divineMult(s).toFixed(2)}` : '레벨이 오를수록 행동이 빨라집니다 (최대 40%)');
+    });
+
+    for (const a of k.actions) {
+      const r = makeRow(a.icon);
+      setText(r.name, a.name);
+      r.btn.addEventListener('click', () => {
+        if (L.active?.skill === k.id && L.active.action === a.id) stopAction(g);
+        else if (startAction(g, k.id, a.id)) this.toast(`${k.icon} ${a.name} 시작`, 'good');
+      });
+      panel.appendChild(r.el);
+      this.updaters.push(() => {
+        const lv = lifeLevel(s, k.id);
+        const locked = lv < a.lvl;
+        const running = L.active?.skill === k.id && L.active.action === a.id;
+        const parts = [];
+        if (a.in) parts.push('필요: ' + Object.entries(a.in).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
+        if (a.out) parts.push('획득: ' + matList(a.out));
+        if (a.equip) parts.push(`획득: ${a.equip.slots.map((x) => SLOTS[x].name).join('/')} · ${RARITIES[a.equip.r].name} · Lv${Math.max(1, s.maxStage)}`);
+        if (a.gold) parts.push(`골드 약 ${fmt(a.gold * g.goldMult() * goldPerKillAt(s))}`);
+        if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)}`).join(', '));
+        const extra = [`XP ${a.xp}`, `${actionTime(s, k.id, a).toFixed(1)}초`];
+        if (k.id === 'thief') extra.push(`성공 ${fmtPct(stealChance(s, a))}`);
+        const bc = burnChance(s, k.id, a);
+        if (bc > 0) extra.push(`태울 확률 ${fmtPct(bc)}`);
+        parts.push(extra.join(' · '));
+        const html = parts.join('<br>');
+        if (r.desc._h !== html) { r.desc._h = html; r.desc.innerHTML = html; }
+        setText(r.lv, `Lv ${a.lvl}`);
+        r.el.classList.toggle('locked', locked);
+        r.el.classList.toggle('running', running);
+        const ok = hasInputs(s, a);
+        setText(r.bt1, locked ? '🔒 잠김' : running ? '■ 중지' : '▶ 시작');
+        setText(r.bt2, locked ? `Lv ${a.lvl} 필요` : !running && !ok ? '재료 부족' : '');
+        setDisabled(r.btn, locked || (!running && !ok));
+      });
+    }
+  }
+
+  lifeBank(panel) {
+    const g = this.game;
+    const s = g.s;
+    const L = s.life;
+
+    const opts = h('div', 'card opts', '<label class="toggle"><input type="checkbox"> 체력 40% 미만일 때 음식 자동 섭취</label>');
+    const cb = $('input', opts);
+    cb.checked = L.autoEat;
+    cb.addEventListener('change', () => { L.autoEat = cb.checked; });
+    panel.appendChild(opts);
+
+    const owned = () => Object.keys(MATS).filter((id) => (L.bank[id] || 0) > 0);
+    const ids = owned();
+    const sig = ids.join(',');
+    this.updaters.push(() => { if (owned().join(',') !== sig) this.lifeDirty = true; });
+    panel.appendChild(h('div', 'section-title', `창고 (${ids.length}종)`));
+    if (!ids.length) {
+      panel.appendChild(h('div', 'muted center pad', '창고가 비어 있습니다. 생활 스킬로 재료를 모아 보세요.<br>몬스터를 잡으면 뼈도 얻습니다.'));
+      return;
+    }
+    for (const id of ids) {
+      const m = MATS[id];
+      const row = h('div', 'row bankrow', `
+        <div class="ricon">${m.icon}</div>
+        <div class="rinfo"><div class="rtitle"><span class="rname">${m.name}</span><span class="rlv"></span></div><div class="rdesc"></div></div>
+        <div class="bbtns"></div>`);
+      const cnt = $('.rlv', row);
+      const desc = $('.rdesc', row);
+      const btns = $('.bbtns', row);
+      let use = null;
+      if (m.buff) {
+        use = h('button', 'btn small primary', '마시기');
+        use.addEventListener('click', () => {
+          if (usePotion(g, id)) this.toast(`${m.name}: ${m.buff.map((b) => BUFFS[b].name + ' ' + BUFFS[b].label).join(', ')}`, 'good');
+        });
+        btns.appendChild(use);
+      }
+      const sell = h('button', 'btn small', '전부 판매');
+      sell.addEventListener('click', () => {
+        const n = L.bank[id] || 0;
+        const gold = sellMat(g, id, n);
+        if (gold > 0) this.toast(`${m.name} ${fmt(n)}개 판매: 💰 ${fmt(gold)}`, 'good');
+      });
+      btns.appendChild(sell);
+      panel.appendChild(row);
+      const info = m.heal ? `음식 · 체력 ${Math.round(m.heal * 100)}% 회복`
+        : m.buff ? `물약 · ${m.buff.map((b) => BUFFS[b].name + ' ' + BUFFS[b].label).join(', ')} ${fmtTime(m.dur)}` : '재료';
+      this.updaters.push(() => {
+        const n = L.bank[id] || 0;
+        setText(cnt, 'x' + fmt(n));
+        setText(desc, `${info} · 개당 💰 ${fmt(matValue(s, id))}`);
+        if (use) setDisabled(use, n <= 0);
+        setDisabled(sell, n <= 0);
+      });
+    }
+  }
+
   tabRelic(panel) {
     const g = this.game;
     const s = g.s;
@@ -500,10 +695,24 @@ export class UI {
         <li>보스에게 지면 사냥 모드로 바뀝니다. 강해진 뒤 <b>👑 보스 도전</b>을 누르세요.</li>
         <li>스킬은 스테이지 진행에 따라 해금되며 🤖 자동 사용을 켤 수 있습니다.</li>
         <li>막히면 <b>환생</b>으로 정수를 얻어 유물을 강화하세요.</li>
+        <li><b>⛏️ 생활</b> 탭: 전투와 동시에 생활 스킬 1개를 진행합니다. 재료로 음식·물약·장비를 만들고, 생활 스킬은 환생해도 유지됩니다.</li>
         <li>게임을 꺼도 최대 ${fmtTime(g.offlineCapSec())} 동안 골드를 모읍니다.</li>
       </ul>
       <p class="muted center">${GAME_NAME} v${VERSION}</p>`));
   }
+}
+
+function goldPerKillAt(s) {
+  return goldPerKill(Math.max(1, s.maxStage));
+}
+
+function lifeLines(log) {
+  const lines = describeLog(log);
+  return lines.length ? `<div class="offlife"><b>생활 스킬</b>${lines.map((l) => `<div>${l}</div>`).join('')}</div>` : '';
+}
+
+function matList(obj) {
+  return Object.entries(obj).map(([id, n]) => `${MATS[id].icon} ${MATS[id].name} ${n}`).join(', ');
 }
 
 function nextGainStage(runMax) {
