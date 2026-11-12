@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.5.1';
+export const VERSION = '3.6.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -39,7 +39,7 @@ export const STYLES = {
 };
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
-export const STAT_CAPS = { crit: 0.75, ls: 0.2, dr: 0.6, regen: 0.05, pen: 0.6, spd: 1 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.2, dr: 0.6, regen: 0.05, pen: 0.6, spd: 1, dmg: 3, boss: 5, cdmg: 5, gold: 10, drop: 5 };
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -385,9 +385,15 @@ export const POT_SPECIAL = {
   ring2: 'drop',
   cape: 'gold',
   off: 'pen',
+  pet: 'dmg',
 };
 // 잠금: 잠근 줄 수에 따라 큐브(또는 골드) 소모 배수
-export const POT_LOCK_COST = [1, 3, 8];
+export const POT_LOCK_COST = [1, 3, 8, 20, 50];
+// 펫: 잠재능력 5줄 · 골드 강화
+export const PET_POT_LINES = 5;
+export const PET_ENH_MAX = 50;
+export const PET_ENH = { atk: 0.015, def: 0.02, hp: 0.02 }; // 강화 1레벨당
+export const petEnhCost = (lvl, L) => goldPerKill(Math.max(1, lvl)) * 20 * Math.pow(1.2, L);
 export const potValue = (key, t) => {
   const l = POT_LINES.find((x) => x.key === key);
   return l ? Math.round(l.b * POT_MULT(t) * 1e4) / 1e4 : 0;
@@ -410,10 +416,10 @@ export function liftLine([k, v], i, t) {
 }
 // 지금 등급 t로 3줄 굴림 (등급 상승 판정 포함, force면 천장으로 확정 상승)
 // keep: 잠근 줄 [i] = 기존 줄 (그대로 유지)
-export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep = []) {
+export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep = [], n = 3) {
   if (t < POT_TIERS.length - 1 && (force || rnd() < POT_TIERS[t].up)) t++;
   const lines = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < n; i++) {
     // 잠근 줄은 옵션 그대로, 등급이 오르면 수치도 새 등급만큼 오름
     if (keep[i]) { lines.push(liftLine(keep[i], i, t)); continue; }
     lines.push(potLine(i === 0 || rnd() < 0.2 || t === 0 ? t : t - 1, rnd, slot));

@@ -3,7 +3,7 @@ import { goldPerKill, RARITIES, itemName, VIP, LOOT_MATS, ZONES, DROP_SLOTS, BOS
 import { fmt } from './format.js';
 import { worldBonus, questEvent, rollSkillPet } from './world.js';
 
-export const LIFE_MAX_LV = 99;
+export const LIFE_MAX_LV = 999;
 const AUTO_EAT_RATIO = 0.4;       // 체력이 이 비율 아래면 음식 자동 섭취
 const MAX_LOOP = 200000;          // 한 번에 처리할 최대 행동 수 (안전장치)
 const CAUGHT_STUN = 3;            // 도둑질 실패 시 기절 시간(초)
@@ -16,15 +16,35 @@ function earlyDiscount(L) {
   if (L < 30) return 0.9;
   return 1;
 }
-export const xpToNext = (L) => Math.floor(((L + 240 * Math.pow(2, L / 8)) / 4) * earlyDiscount(L));
+// 99레벨 이후에는 완만하게 (레벨마다 99레벨 필요량의 3%씩 증가)
+const xpBase = (L) => Math.floor(((L + 240 * Math.pow(2, L / 8)) / 4) * earlyDiscount(L));
+export const xpToNext = (L) => (L < 99 ? xpBase(L) : Math.floor(xpBase(98) * (1 + (L - 98) * 0.03)));
 // XP_TABLE[L] = 레벨 L 도달에 필요한 누적 경험치
 export const XP_TABLE = [0, 0];
 for (let L = 1; L < LIFE_MAX_LV; L++) XP_TABLE.push(XP_TABLE[L] + xpToNext(L));
 
 export function levelFromXp(xp) {
-  let L = 1;
-  while (L < LIFE_MAX_LV && xp >= XP_TABLE[L + 1]) L++;
-  return L;
+  // 이진 탐색: XP_TABLE[L] <= xp 인 가장 큰 L
+  let lo = 1;
+  let hi = LIFE_MAX_LV;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (xp >= XP_TABLE[mid]) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+// ---------- 생활 스킬 레벨 → 특수 옵션 ----------
+// 레벨마다 조금씩 올라 999레벨에서 최대 (값: 999레벨 수치)
+export const LIFE_SPECIAL = {
+  wood: ['boss', 1.0], mine: ['pen', 0.15], fish: ['drop', 1.0], cook: ['spd', 0.25], smith: ['dmg', 0.5],
+  craft: ['cdmg', 1.0], alch: ['boss', 1.0], arcane: ['dmg', 0.5], divine: ['gold', 2.0], thief: ['drop', 1.0],
+};
+export const lifeSpecialOf = (id, lv) => (LIFE_SPECIAL[id] ? LIFE_SPECIAL[id][1] * (lv / LIFE_MAX_LV) : 0);
+export function lifeSpecial(s, key) {
+  let v = 0;
+  for (const [id, [k]] of Object.entries(LIFE_SPECIAL)) if (k === key) v += lifeSpecialOf(id, lifeLevel(s, id));
+  return v;
 }
 
 // 상위 행동일수록 경험치 배율 증가

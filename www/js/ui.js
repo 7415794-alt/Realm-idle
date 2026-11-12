@@ -1,13 +1,13 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_SP_MIN, POT_LINES, POT_LOCK_COST, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
+  STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_SP_MIN, POT_LINES, POT_LOCK_COST, STAT_CAPS, PET_ENH, PET_ENH_MAX, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
 import {
-  LIFE_SKILLS, LIFE, MATS, BUFFS, LIFE_MAX_LV, XP_TABLE, lifeLevel, actionTime, burnChance, stealChance,
+  LIFE_SKILLS, LIFE, MATS, BUFFS, LIFE_MAX_LV, LIFE_SPECIAL, lifeSpecialOf, XP_TABLE, lifeLevel, actionTime, burnChance, stealChance,
   hasInputs, matValue, startAction, stopAction, usePotion, sellMat, describeLog, bestFood, foodCount,
   TOOLS, PRAYERS, PRODUCTION, toolInfo, toolUpgradeCheck, upgradeTool, setPrayer, activePrayer, perkText, actionXp, speedMult,
 } from './life.js';
@@ -15,7 +15,7 @@ import {
   climate, bonusText, BONUS_NAMES, WEATHERS, SEASONS, msToNextDay, msToNextWeek, PETS, PET, PET_SRC, petCost, hasPet, activePet, buyPet, setPet,
   SB, SKILL_BOSSES, CHEST_NAMES, sbState, sbDamage, sbCheck, attackSkillBoss,
   CHAIN, chainProgress, questText, questIcon, questReward, claimQuest, claimChain, questClaimable,
-  museumTotals, museumProgress, museumLevel, museumNext, museumScale, zoneSetLevel, donate,
+  museumTotals, museumProgress, museumDelta, museumLevel, museumNext, museumScale, zoneSetLevel, donate,
 } from './world.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -227,7 +227,7 @@ export class UI {
       b.classList.toggle('on', id === cur);
       setText(v, exact(st[STYLES[id].stat]));
     }
-    setText(this.statLine, `❤️ ${exact(Math.max(0, g.rt.heroHp))} / ${exact(st.hp)} · 🛡️ ${exact(st.def)} · 🎯 ${pct(st.crit)} · 🧛 ${pct(st.ls)} · 🧱 ${pct(st.dr)} · DPS ${exact(g.totalDps())}`);
+    setText(this.statLine, `❤️ ${exact(Math.max(0, g.rt.heroHp))}/${exact(st.hp)} · 🛡️ ${exact(st.def)} · 🎯 ${pct(st.crit)} · DPS ${exact(g.totalDps())} · ⚔ ${fmt(g.powerScore())}`);
   }
 
   // 정확한 능력치 표 (영웅 탭 · 장비 탭)
@@ -242,24 +242,31 @@ export class UI {
       ['🔮 마법' + mark('magic'), (st) => exact(st.mag)],
       ['🛡️ 방어', (st) => exact(st.def)],
       ['❤️ 체력', (st) => `${exact(Math.max(0, g.rt.heroHp))} / ${exact(st.hp)}`],
-      ['🎯 치명타', (st) => pct(st.crit) + ' · 피해 x' + st.cdmg.toFixed(2)],
-      ['👑 보스 피해', (st) => '+' + pct(st.boss)],
-      ['🪓 방어 무시', (st) => pct(st.pen)],
-      ['🧛 흡혈', (st) => pct(st.ls)],
-      ['🧱 피해 감소', (st) => pct(st.dr)],
-      ['💚 초당 회복', (st) => pct(0.02 + st.regen)],
+      ['🎯 치명타', (st) => capTxt(st.crit, STAT_CAPS.crit)],
+      ['🧛 흡혈', (st) => capTxt(st.ls, STAT_CAPS.ls)],
+      ['🧱 피해 감소', (st) => capTxt(st.dr, STAT_CAPS.dr)],
+      ['💚 추가 회복', (st) => capTxt(st.regen, STAT_CAPS.regen)],
+      ['★ 모든 피해', (st) => capTxt(st.dmg - 1, STAT_CAPS.dmg), 1],
+      ['★ 보스 피해', (st) => capTxt(st.boss, STAT_CAPS.boss), 1],
+      ['★ 방어 무시', (st) => capTxt(st.pen, STAT_CAPS.pen), 1],
+      ['★ 치명타 피해', (st) => capTxt(st.cdmg - CRIT_MULT, STAT_CAPS.cdmg), 1],
+      ['★ 공격 속도', (st) => capTxt(st.spd, STAT_CAPS.spd), 1],
+      ['★ 골드', (st) => capTxt(st.gold, STAT_CAPS.gold), 1],
+      ['★ 드롭률', (st) => capTxt(st.drop, STAT_CAPS.drop), 1],
       ['💨 공격 속도', () => g.atkSpeed().toFixed(2) + '/초'],
       ['🗡️ 피해 범위', () => `${exact(g.maxHit() * g.minHitFrac())} ~ ${exact(g.maxHit())}`],
       ['📈 DPS', () => exact(g.totalDps())],
       ['💥 받는 피해', () => { const m = g.rt.monster || { str: 0 }; return exact(incomingHit(m.str, g.stats().def) * (1 - g.stats().dr)) + '/회'; }],
       ['🍀 드롭률 배율', () => 'x' + g.lootMult().toFixed(2)],
+      ['⚔ 전투력', () => exact(g.powerScore())],
     ];
-    const vals = fields.map(([label]) => {
-      const it = h('div', 'stat', `<span>${label}</span><b></b>`);
+    const capTxt = (v, cap) => `${pct(v)}<small> / ${pct(cap)}</small>`;
+    const vals = fields.map(([label, , sp]) => {
+      const it = h('div', 'stat' + (sp ? ' spstat' : ''), `<span>${label}</span><b></b>`);
       card.appendChild(it);
       return $('b', it);
     });
-    this.updaters.push(() => { const st = g.stats(); fields.forEach(([, f], i) => setText(vals[i], f(st))); });
+    this.updaters.push(() => { const st = g.stats(); fields.forEach(([, f], i) => { const v = f(st); if (vals[i].innerHTML !== v) vals[i].innerHTML = v; }); });
     panel.appendChild(card);
   }
 
@@ -278,7 +285,7 @@ export class UI {
       const best = [...a.styles].sort((x, y) => y.kpm - x.kpm)[0];
       const n = a.now;
       const life = n.killsPerLife === Infinity ? '체력이 줄지 않음 (안정)' : `한 번 쓰러질 때까지 약 ${exact(n.killsPerLife)}마리`;
-      const top = a.rows.filter((r) => r.gain > 0.0005).slice(0, 3);
+      const top = a.rows.filter((r) => r.gain > 0.00005).slice(0, 3);
       const tip = a.danger
         ? '⚠️ 지금 몬스터에게 자주 쓰러집니다. 생존 스탯(아래 순위)부터 올리거나 더 약한 몬스터를 고르세요.'
         : '✅ 생존은 안정적입니다. 공격 스탯을 올릴수록 사냥이 빨라집니다.';
@@ -286,8 +293,8 @@ export class UI {
       card.innerHTML = `<summary>📊 스탯 분석 · 추천 (${sty.icon} ${sty.name} 기준, ${a.m.name || '지금 몬스터'})</summary>
         <div class="muted lnote">처치 시간 ${n.ttk.toFixed(1)}초 · 초당 받는 피해 ${exact(n.inc)} · 초당 회복 ${exact(n.heal)} · ${life} · 분당 처치 ${n.kpm.toFixed(1)}마리</div>
         <div class="anatip">${tip}</div>
-        <div class="anahead">추천 순위 (같은 양을 올렸을 때 분당 처치 증가)</div>
-        ${a.rows.map((r, i) => `<div class="lrow${i < 3 && r.gain > 0.0005 ? ' best' : ''}"><span>${i + 1}. ${r.label}</span><b>${r.gain > 0.0005 ? '+' + (r.gain * 100).toFixed(1) + '%' : '효과 거의 없음'}</b></div>`).join('')}
+        <div class="anahead">추천 순위 (각 스탯 1%씩 올렸을 때 분당 처치 증가 · 최대치에 도달한 스탯은 제외)</div>
+        ${a.rows.map((r, i) => `<div class="lrow${i < 3 && r.gain > 0.00005 ? ' best' : ''}${r.sp ? ' sprow' : ''}"><span>${i + 1}. ${r.label}</span><b>${r.gain > 0.00005 ? '+' + (r.gain * 100).toFixed(2) + '%' : '효과 거의 없음'}</b></div>`).join('')}
         <div class="anahead">지금 장비로 방식별 비교</div>
         ${a.styles.map((x) => `<div class="lrow${x.id === best.id ? ' best' : ''}"><span>${STYLES[x.id].icon} ${STYLES[x.id].name}${x.id === g.style() ? ' (사용 중)' : ''}</span><b>DPS ${exact(x.dps)} · 분당 ${x.kpm.toFixed(1)}마리</b></div>`).join('')}
         <div class="muted lnote">${best.id !== g.style() ? `💡 지금 장비로는 ${STYLES[best.id].icon} ${STYLES[best.id].name}이(가) 더 강합니다. 아래에서 바꿀 수 있습니다.` : '💡 지금 고른 방식이 가장 강합니다.'}
@@ -411,8 +418,7 @@ export class UI {
     el.style.setProperty('--rc', rar.color);
     let diff = '';
     if (!equipped) {
-      const d = g.upgradeGain(it);
-      diff = `<span class="diff ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))}</span>`;
+      diff = pwrSpan(g.equipDelta(it));
     }
     const inactive = equipped && it.slot === 'shield' && g.twoHanded();
     const wd = it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'] : null;
@@ -427,9 +433,10 @@ export class UI {
     const btns = $('.ibtns', el);
     if (equipped) {
       const enh = h('button', 'btn small');
+      const ed = it.enh < ENHANCE_MAX ? g.enhanceDelta(it) : 0;
       const upd = () => {
         const c = enhanceCost(it);
-        enh.innerHTML = it.enh >= ENHANCE_MAX ? '강화 MAX' : `강화 +${it.enh + 1}<br><small>💰 ${fmt(c)}</small>`;
+        enh.innerHTML = it.enh >= ENHANCE_MAX ? '강화 MAX' : `강화 +${it.enh + 1}<br><small>💰 ${fmt(c)} · ${pwr(ed)}</small>`;
         setDisabled(enh, it.enh >= ENHANCE_MAX || c > g.s.gold);
       };
       enh.addEventListener('click', () => {
@@ -564,7 +571,12 @@ export class UI {
     const draw = () => {
       const it = g.findItem(id);
       if (!it) { close(); return; }
-      const rar = RARITIES[it.r];
+      const isPet = it.slot === 'pet';
+      const pid = isPet ? it.id.slice(4) : null;
+      const rar = isPet ? { name: '펫', color: '#ffd27a' } : RARITIES[it.r];
+      const nL = g.potLines(it);
+      const active = isPet ? s.world.pets.active === pid : !!g.findEquipped(it.id);
+      const cd = it.potNew && active ? g.cubeDelta(it) : null;
       const t = it.pot?.t ?? 0;
       const T = POT_TIERS[t];
       const need = g.cubeNeed(it);
@@ -575,8 +587,8 @@ export class UI {
       if (cfg.tier <= t) cfg.tier = -1;
       win.innerHTML = `
         <div class="cwhead"><span class="ci">${itemIcon(it)}</span>
-          <div class="cwname"><b style="color:${rar.color}">[${rar.name}] ${itemName(it)}</b> <small>Lv${it.lvl}</small>${g.findEquipped(it.id) ? ' <span class="stag">장착 중</span>' : ''}
-          <div class="muted">${statText(itemStats(it))}</div></div>
+          <div class="cwname"><b style="color:${rar.color}">[${rar.name}] ${isPet ? PET[pid].name : itemName(it)}</b>${isPet ? ` <small>+${it.enh || 0}</small>` : ` <small>Lv${it.lvl}</small>`}${active ? ` <span class="stag">${isPet ? '데리고 다니는 중' : '장착 중'}</span>` : ''}
+          <div class="muted">${isPet ? petEnhText(it) + ` · 잠재능력 ${nL}줄` : statText(itemStats(it))}</div></div>
           <button class="btn small cwx">✖</button></div>
         <div class="cwtier">잠재 등급 <b style="color:${T.color}">${T.name}</b> (${t + 1}/${POT_TIERS.length}) · 수치 x${T.mult.toFixed(2)}
           ${T.up ? `<br>다음 등급 <b style="color:${POT_TIERS[t + 1].color}">${POT_TIERS[t + 1].name}</b> 확률 ${(T.up * 100).toFixed(2)}% · 천장 <b>${Math.min(it.pity || 0, T.pity)}/${T.pity}</b>
@@ -588,16 +600,16 @@ export class UI {
         </div>
         <div class="cwbtns">
           <button class="btn primary cwroll">🎲 돌리기<br><small>${bank >= need ? `큐브 ${need}개` : `💰 ${fmt(g.cubeCost(it))}`}</small></button>
-          <button class="btn cwok"${it.potNew ? '' : ' disabled'}>✅ AFTER 적용</button>
+          <button class="btn cwok"${it.potNew ? '' : ' disabled'}>✅ AFTER 적용${it.potNew ? `<br><small>${cd === null ? (isPet ? '데리고 다닐 때 반영' : '장착 시 반영') : pwr(cd)}</small>` : ''}</button>
           <button class="btn cwkeep"${it.potNew ? '' : ' disabled'}>↩️ BEFORE 유지</button>
         </div>
-        <div class="muted lnote">🎲 보유 큐브 ${exact(bank)}개 · 🔒 잠금 ${g.potLocks(it).length}/2 (잠그면 큐브 x${POT_LOCK_COST[1]} / x${POT_LOCK_COST[2]}) · 등급이 오르면 적용 여부와 상관없이 유지 · 특수 옵션: ${sp || '없음'}</div>
+        <div class="muted lnote">🎲 보유 큐브 ${exact(bank)}개 · 🔒 잠금 ${g.potLocks(it).length}/${nL - 1} (잠근 줄 수에 따라 큐브 ${POT_LOCK_COST.slice(1, nL).map((x) => 'x' + x).join(' / ')}) · 등급이 오르면 적용 여부와 상관없이 유지 · 특수 옵션: ${sp || '없음'}</div>
         <details class="cwauto"${this.cubeAutoOpen ? ' open' : ''}><summary>⏩ 자동 돌리기 · 원하는 결과에서 멈춤</summary>
           <label>목표 등급 <select class="atier"><option value="-1">설정 안 함</option>${POT_TIERS.map((p, i) => (i > t ? `<option value="${i}"${cfg.tier === i ? ' selected' : ''}>${p.name}</option>` : '')).join('')}</select></label>
           <div class="muted">원하는 옵션 (여러 개 고르면 그중 하나라도 해당)</div>
           <div class="chips">${POT_LINES.map(({ key: k }) => { const can = keysFor(it).includes(k); return `<button class="chip${isSp(k) ? ' sp' : ''}${cfg.keys.includes(k) && can ? ' on' : ''}${can ? '' : ' no'}" data-k="${k}"${can ? '' : ' disabled'}>${isSp(k) ? '★ ' : ''}${BONUS_NAMES[k]}</button>`; }).join('')}</div>
           <div class="muted">★ 특수 옵션 · 어두운 옵션은 이 부위에 나오지 않습니다</div>
-          <label>원하는 옵션이 <select class="an">${[1, 2, 3].map((n) => `<option value="${n}"${cfg.n === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select> 나오면 멈춤</label>
+          <label>원하는 옵션이 <select class="an">${Array.from({ length: nL }, (_, i) => i + 1).map((n) => `<option value="${n}"${cfg.n === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select> 나오면 멈춤</label>
           <label class="toggle"><input type="checkbox" class="agold"${cfg.gold ? ' checked' : ''}> 큐브가 떨어지면 골드로 계속</label>
           <div class="muted">목표 등급과 옵션을 둘 다 고르면 둘 다 만족할 때 멈춥니다.${auto ? ` · 자동 진행 ${rolls}회` : ''}</div>
           <button class="btn ${auto ? '' : 'primary'} cwauto-btn">${auto ? '■ 멈춤' : '▶ 자동 시작'}</button>
@@ -605,7 +617,7 @@ export class UI {
       $('.cwx', win).addEventListener('click', close);
       $('.cwauto', win).addEventListener('toggle', (e) => { this.cubeAutoOpen = e.target.open; });
       win.querySelectorAll('.lockbtn').forEach((b) => b.addEventListener('click', () => {
-        if (!g.toggleLock(it.id, Number(b.dataset.i))) this.toast('최대 2줄까지 잠글 수 있습니다', 'bad');
+        if (!g.toggleLock(it.id, Number(b.dataset.i))) this.toast(`최대 ${g.potLines(it) - 1}줄까지 잠글 수 있습니다`, 'bad');
         draw();
       }));
       $('.cwroll', win).addEventListener('click', () => { stopAuto(); roll(true); });
@@ -667,7 +679,7 @@ export class UI {
             if (nb) { nb.classList.add('pop'); if (r.up) nb.classList.add('upflash'); }
             return;
           }
-          box.innerHTML = `<div class="cpot" style="--pc:${POT_TIERS[r.res.t].color}"><div class="ctier">${POT_TIERS[r.res.t].name}</div>${[0, 1, 2].map(() => {
+          box.innerHTML = `<div class="cpot" style="--pc:${POT_TIERS[r.res.t].color}"><div class="ctier">${POT_TIERS[r.res.t].name}</div>${Array.from({ length: g.potLines(it) }, () => 0).map(() => {
             const k = keys[Math.floor(Math.random() * keys.length)];
             return `<div class="cline">${lineRow(k, potValue(k, r.res.t))}</div>`;
           }).join('')}</div>`;
@@ -888,6 +900,8 @@ export class UI {
       else if (PRODUCTION.includes(k.id)) bonus = `작업대 속도 x${toolInfo(s, 'workshop').cur.speed}`;
       else if (k.id === 'divine') bonus = activePrayer(s) ? `기도 중: ${activePrayer(s).icon} ${activePrayer(s).name} (${activePrayer(s).desc})` : '켜 둔 기도가 없습니다 (아래에서 선택)';
       else bonus = '요구 레벨보다 높을수록 조금씩 빨라집니다 (최대 +25%)';
+      const ls = LIFE_SPECIAL[k.id];
+      if (ls) bonus += ` · ★ 레벨 특수 옵션: ${BONUS_NAMES[ls[0]]} +${pct(lifeSpecialOf(k.id, lv))} / +${pct(ls[1])} (Lv ${LIFE_MAX_LV})`;
       setText(hBonus, bonus);
     });
 
@@ -987,7 +1001,7 @@ export class UI {
         r.el.classList.toggle('locked', locked);
         r.el.classList.toggle('running', on);
         setText(r.bt1, locked ? '🔒 잠김' : on ? '■ 끄기' : '🙏 켜기');
-        setText(r.bt2, locked ? `Lv ${p.lvl} 필요` : '');
+        setText(r.bt2, locked ? `Lv ${p.lvl} 필요` : on ? '' : pwr(this.cached('pray' + p.id, () => this.game.powerDelta(() => { const o = s.life.prayer; s.life.prayer = p.id; return () => { s.life.prayer = o; }; }))));
         setDisabled(r.btn, locked);
       });
     }
@@ -1132,6 +1146,8 @@ export class UI {
         const bar = $('.lbar div', row);
         const [b1, b2] = row.querySelectorAll('button');
         const go = (mode) => { const n = donate(g, e.id, mode); if (n > 0) { this.toast(`${m.name} ${fmt(n)}개 기증`, 'good'); this.advDirty = true; } };
+        const md = museumDelta(g, e.id);
+        b1.innerHTML = `+1 Lv<br><small>${pwr(md)}</small>`;
         b1.addEventListener('click', () => go('next'));
         b2.addEventListener('click', () => go('all'));
         box.appendChild(row);
@@ -1312,7 +1328,7 @@ export class UI {
     const g = this.game;
     const s = g.s;
     const ap = activePet(s);
-    panel.appendChild(h('div', 'card note', ap ? `데리고 다니는 펫: ${ap.icon} <b>${ap.name}</b> · ${bonusText(ap.bonus)}` : '데리고 다니는 펫이 없습니다. 펫은 1마리만 데리고 다닐 수 있습니다.'));
+    this.petCard(panel, ap);
     panel.appendChild(h('div', 'muted center', `펫 도감 ${s.world.pets.owned.length} / ${PETS.length} · 드롭으로 얻는 펫은 드롭률 효과를 받습니다`));
     this.petOpen ||= { shop: true };
     for (const src of Object.keys(PET_SRC)) {
@@ -1326,7 +1342,8 @@ export class UI {
         const owned = hasPet(s, p.id);
         const r = makeRow(owned || src === 'shop' ? p.icon : '❔');
         setText(r.name, owned || src === 'shop' ? p.name : '???');
-        setText(r.desc, bonusText(p.bonus));
+        const pd = hasPet(s, p.id) ? g.petData(p.id) : null;
+        r.desc.innerHTML = pd ? `+${pd.enh} · ${pd.pot ? `<span style="color:${POT_TIERS[pd.pot.t].color}">${POT_TIERS[pd.pot.t].name}</span> ${pd.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}` : '잠재능력 없음'}` : '기본 수치 없음 · 강화와 잠재능력(5줄)으로 성장';
         const where = p.zone !== undefined ? ZONES_T[p.zone] : p.weather ? WEATHER_T[p.weather] : p.season ? SEASON_T[p.season] : p.skill ? LIFE[p.skill].icon + ' ' + LIFE[p.skill].name : '';
         if (where) setText(r.lv, where);
         r.btn.addEventListener('click', () => {
@@ -1341,7 +1358,7 @@ export class UI {
           r.el.classList.toggle('locked', !own && src !== 'shop');
           if (own) {
             setText(r.bt1, on ? '■ 넣기' : '🐾 데리고 가기');
-            setText(r.bt2, '');
+            setText(r.bt2, on ? '' : pwr(this.cached('pet' + p.id, () => g.powerDelta(() => { const P = s.world.pets; const a = P.active; P.active = p.id; return () => { P.active = a; }; }))));
             setDisabled(r.btn, false);
           } else if (src === 'shop') {
             const lockd = s.maxStage < p.stage;
@@ -1356,6 +1373,43 @@ export class UI {
         });
       }
     }
+  }
+
+  // 잠깐 저장해 두는 계산 (전투력 미리보기처럼 무거운 값, 1.5초)
+  cached(key, fn) {
+    const now = performance.now();
+    this.cache ||= {};
+    const c = this.cache[key];
+    if (c && now - c.t < 1500) return c.v;
+    const v = fn();
+    this.cache[key] = { t: now, v };
+    return v;
+  }
+
+  // 데리고 다니는 펫: 골드 강화 · 잠재능력(5줄) 큐브
+  petCard(panel, ap) {
+    const g = this.game;
+    const s = g.s;
+    if (!ap) { panel.appendChild(h('div', 'card note', '데리고 다니는 펫이 없습니다. 펫은 1마리만 데리고 다닐 수 있습니다. 펫은 기본 수치가 없고, 💰 골드 강화와 🎲 잠재능력(5줄)으로 강해집니다.')); return; }
+    const d = g.petData(ap.id);
+    const card = h('div', 'card petcard', `
+      <div class="cubehead"><span class="iicon">${ap.icon}</span><div><b>${ap.name}</b> <small>+${d.enh} / ${PET_ENH_MAX}</small>
+        <div class="muted">${petEnhText(d)} · 강화 1회마다 ${bonusText(PET_ENH)}</div></div></div>
+      <div class="potline">${d.pot ? `<span style="color:${POT_TIERS[d.pot.t].color}">◆ ${POT_TIERS[d.pot.t].name}</span> · ${d.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}` : '잠재능력 없음 (큐브로 개방, 5줄 · ★ 특수 옵션 모든 피해)'}</div>
+      <div class="cubebtns"></div>`);
+    const btns = $('.cubebtns', card);
+    const eb = h('button', 'btn primary');
+    const ed = d.enh < PET_ENH_MAX ? g.petEnhDelta(ap.id) : 0;
+    eb.addEventListener('click', () => { if (g.enhancePet(ap.id)) { this.toast(`${ap.icon} ${ap.name} +${d.enh} 강화!`, 'good'); this.showTab('adv', true); } });
+    const cb = h('button', 'btn', '🎲 잠재능력 큐브');
+    cb.addEventListener('click', () => this.openCube('pet:' + ap.id));
+    btns.append(eb, cb);
+    this.updaters.push(() => {
+      const c = g.petEnhCost(ap.id);
+      eb.innerHTML = d.enh >= PET_ENH_MAX ? '강화 MAX' : `💰 강화 +${d.enh + 1}<br><small>💰 ${fmt(c)} · ${pwr(ed)}</small>`;
+      setDisabled(eb, d.enh >= PET_ENH_MAX || s.gold < c);
+    });
+    panel.appendChild(card);
   }
 
   tabMore(panel) {
@@ -1446,7 +1500,11 @@ export class UI {
 }
 
 const WICON = { sword: '🗡️', blade: '🗡️', great: '⚔️', xbow: '🏹', bow: '🏹', wand: '✨', staff: '🔮' };
-const itemIcon = (it) => (it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon);
+const itemIcon = (it) => (it.slot === 'pet' ? PET[it.id.slice(4)]?.icon || '🐾' : it.slot === 'weapon' ? WICON[it.kind || 'sword'] : SLOTS[it.slot].icon);
+// 전투력 변화 표시
+const pwr = (d) => (Math.abs(d) < 0.05 ? '⚔ ±0' : `⚔ ${d > 0 ? '+' : '-'}${fmt(Math.abs(d))}`);
+const pwrSpan = (d) => `<span class="diff ${d > 0.05 ? 'up' : d < -0.05 ? 'down' : ''}">${pwr(d)}</span>`;
+const petEnhText = (d) => (d?.enh ? bonusText(Object.fromEntries(Object.entries(PET_ENH).map(([k, v]) => [k, v * d.enh]))) : '강화 없음');
 const ZONES_T = ZONES.map((z) => z.name);
 const WEATHER_T = Object.fromEntries(Object.entries(WEATHERS).map(([k, w]) => [k, w.icon + ' ' + w.name]));
 const SEASON_T = Object.fromEntries(SEASONS.map((x) => [x.id, x.icon + ' ' + x.name]));

@@ -4,12 +4,12 @@
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
-  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
 import { fmt } from './format.js';
-import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS } from './life.js';
+import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS, lifeSpecial } from './life.js';
 import { worldBonus, worldTick, questEvent, rollKillPets } from './world.js';
 
 // 쿠폰: 몇 번이든 사용 가능. gold는 '처치 골드 x 배수'(최고 레벨 기준)
@@ -57,7 +57,7 @@ export class Game {
   }
 
   // 기도 + 펫 + 날씨 효과 합
-  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key); }
+  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key) + this.petEnhBonus(key) + lifeSpecial(this.s, key); }
 
   // 게임 배속 (저장값이 잘못돼도 x1)
   speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
@@ -107,12 +107,14 @@ export class Game {
       ls: Math.min(STAT_CAPS.ls, g.ls + this.bonus('ls')),
       dr: Math.min(STAT_CAPS.dr, g.dr + this.bonus('dr')),
       regen: Math.min(STAT_CAPS.regen, g.regen + this.bonus('regen')),
-      dmg: 1 + this.bonus('dmg'),
-      // 잠재능력 특수 옵션
-      boss: this.bonus('boss'),
+      dmg: 1 + Math.min(STAT_CAPS.dmg, this.bonus('dmg')),
+      // 특수 옵션 (잠재능력 · 생활 스킬)
+      boss: Math.min(STAT_CAPS.boss, this.bonus('boss')),
       pen: Math.min(STAT_CAPS.pen, this.bonus('pen')),
-      cdmg: CRIT_MULT + this.bonus('cdmg'),
+      cdmg: CRIT_MULT + Math.min(STAT_CAPS.cdmg, this.bonus('cdmg')),
       spd: Math.min(STAT_CAPS.spd, this.bonus('spd')),
+      gold: Math.min(STAT_CAPS.gold, this.bonus('gold')),
+      drop: Math.min(STAT_CAPS.drop, this.bonus('drop')),
     };
   }
 
@@ -136,18 +138,53 @@ export class Game {
   }
   totalDps() { return this.dpsVs(this.rt.monster?.def ?? monsterStats(this.s.stage).def); }
   // 전투력: 장착 장비 점수 합
-  powerScore() {
-    const sty = this.style();
-    let sum = 0;
-    for (const slot of SLOT_IDS) if (!(slot === 'shield' && this.twoHanded())) sum += itemScore(this.s.equip[slot], sty);
-    return sum;
+  // 전투력: 최종 능력치로 계산 (공격 x 치명타 x 속도 x 특수 옵션 + 생존, 흡혈 · 감소 · 회복 · 골드 · 드롭률 보정)
+  powerOf(st = this.stats()) {
+    const sty = STYLES[this.style()];
+    const atk = st[sty.stat] * (sty.stat === 'mag' ? 0.8 : 0.85);
+    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.1);
+    const surv = st.hp * 0.3 + st.def * 2;
+    const sustain = 1 + st.ls * 3 + st.dr * 1.5 + st.regen * 10;
+    const eco = 1 + (st.gold + st.drop) * 0.02;
+    return (off * 10 + surv) * sustain * eco;
+  }
+  powerScore() { return this.powerOf(); }
+  // 바꿔 보고 전투력 차이를 잰 뒤 되돌림. change()는 되돌리는 함수를 돌려줌
+  powerDelta(change) {
+    const before = this.powerOf();
+    const undo = change();
+    this.dirtyStats();
+    const after = this.powerOf();
+    undo();
+    this.dirtyStats();
+    return after - before;
+  }
+  // 가방 장비를 장착했을 때 전투력 변화
+  equipDelta(item) {
+    const s = this.s;
+    return this.powerDelta(() => {
+      const slot = this.targetSlot(item);
+      const prev = s.equip[slot];
+      const oldSlot = item.slot;
+      item.slot = slot;
+      s.equip[slot] = item;
+      return () => { s.equip[slot] = prev; item.slot = oldSlot; };
+    });
+  }
+  enhanceDelta(it) {
+    return this.powerDelta(() => { it.enh++; return () => { it.enh--; }; });
+  }
+  // 큐브 새 결과를 적용했을 때 (장착 장비 · 데리고 다니는 펫만 전투력에 반영)
+  cubeDelta(it) {
+    if (!it?.potNew) return 0;
+    return this.powerDelta(() => { const old = it.pot; it.pot = it.potNew; return () => { it.pot = old; }; });
   }
 
   goldMult() {
-    return VIP.mult * buffMult(this.s, 'gold') * (1 + this.bonus('gold'));
+    return VIP.mult * buffMult(this.s, 'gold') * (1 + Math.min(STAT_CAPS.gold, this.bonus('gold')));
   }
   // 전리품 확률 배율 (VIP · 펫 · 날씨 · 기도)
-  lootMult() { return VIP.mult * buffMult(this.s, 'drop') * (1 + this.bonus('drop')); }
+  lootMult() { return VIP.mult * buffMult(this.s, 'drop') * (1 + Math.min(STAT_CAPS.drop, this.bonus('drop'))); }
 
   // ---------- 전투 · 지도 ----------
   // 지금 대상: s.target = { z: 지역, mi: 몬스터(5 = 보스) }. s.stage = 대상 몬스터 레벨
@@ -379,15 +416,23 @@ export class Game {
     const m = this.rt.monster && !this.rt.monster.dead ? this.rt.monster : { ...monsterStats(info.lvl, info.boss ? 'zoneBoss' : 'normal') };
     const now = this.combatCalc(base, style, m);
     const key = STYLES[style].stat;
+    // 모두 1% 기준 (공격 · 방어 · 체력은 +1%, 나머지는 +1%p). 최대치에 도달한 스탯은 뺌
+    const C = STAT_CAPS;
+    const add = (k, cap, off = 0) => (s) => { s[k] = Math.min(cap + off, s[k] + 0.01); };
     const tests = [
-      { k: key, label: `${STYLES[style].icon} ${STYLES[style].name} +10%`, f: (s) => { s[key] *= 1.1; } },
-      { k: 'crit', label: '🎯 치명타 +5%p', f: (s) => { s.crit = Math.min(STAT_CAPS.crit, s.crit + 0.05); } },
-      { k: 'def', label: '🛡️ 방어 +10%', f: (s) => { s.def *= 1.1; } },
-      { k: 'hp', label: '❤️ 체력 +10%', f: (s) => { s.hp *= 1.1; } },
-      { k: 'ls', label: '🧛 흡혈 +1%p', f: (s) => { s.ls = Math.min(STAT_CAPS.ls, s.ls + 0.01); } },
-      { k: 'dr', label: '🧱 피해 감소 +2%p', f: (s) => { s.dr = Math.min(STAT_CAPS.dr, s.dr + 0.02); } },
-      { k: 'regen', label: '💚 초당 회복 +0.5%p', f: (s) => { s.regen = Math.min(STAT_CAPS.regen, s.regen + 0.005); } },
-    ];
+      { k: key, label: `${STYLES[style].icon} ${STYLES[style].name} +1%`, f: (s) => { s[key] *= 1.01; } },
+      { k: 'def', label: '🛡️ 방어 +1%', f: (s) => { s.def *= 1.01; } },
+      { k: 'hp', label: '❤️ 체력 +1%', f: (s) => { s.hp *= 1.01; } },
+      { k: 'crit', label: '🎯 치명타 +1%p', full: base.crit >= C.crit, f: add('crit', C.crit) },
+      { k: 'ls', label: '🧛 흡혈 +1%p', full: base.ls >= C.ls, f: add('ls', C.ls) },
+      { k: 'dr', label: '🧱 피해 감소 +1%p', full: base.dr >= C.dr, f: add('dr', C.dr) },
+      { k: 'regen', label: '💚 초당 회복 +1%p', full: base.regen >= C.regen, f: add('regen', C.regen) },
+      { k: 'dmg', sp: true, label: '★ 모든 피해 +1%p', full: base.dmg - 1 >= C.dmg, f: add('dmg', C.dmg, 1) },
+      { k: 'boss', sp: true, label: '★ 보스 피해 +1%p', full: base.boss >= C.boss, f: add('boss', C.boss) },
+      { k: 'pen', sp: true, label: '★ 방어 무시 +1%p', full: base.pen >= C.pen, f: add('pen', C.pen) },
+      { k: 'cdmg', sp: true, label: '★ 치명타 피해 +1%p', full: base.cdmg - CRIT_MULT >= C.cdmg, f: add('cdmg', C.cdmg, CRIT_MULT) },
+      { k: 'spd', sp: true, label: '★ 공격 속도 +1%p', full: base.spd >= C.spd, f: add('spd', C.spd) },
+    ].filter((x) => !x.full);
     const rows = tests.map((x) => {
       const st = { ...base };
       x.f(st);
@@ -403,13 +448,14 @@ export class Game {
   // 장착 여부와 상관없이 사용. 🎲 큐브 1개(없으면 골드)로 3줄을 다시 굴림
   // 잠재능력이 없으면 바로 개방, 있으면 새 결과를 보여 주고 '적용' 또는 '유지'를 고름 (등급 상승은 어느 쪽이든 유지)
   // 잠근 줄 (잠재능력이 있을 때만, 최대 2줄)
-  potLocks(it) { return it.pot ? (it.potLock || []).filter((i) => i >= 0 && i < 3) : []; }
+  potLines(it) { return it.slot === 'pet' ? PET_POT_LINES : 3; }
+  potLocks(it) { return it.pot ? (it.potLock || []).filter((i) => i >= 0 && i < this.potLines(it)) : []; }
   toggleLock(id, i) {
     const it = this.findItem(id);
     if (!it?.pot) return false;
     const L = new Set(it.potLock || []);
     if (L.has(i)) L.delete(i);
-    else if (L.size >= POT_LOCK_COST.length - 1) return false;
+    else if (L.size >= this.potLines(it) - 1) return false;
     else L.add(i);
     it.potLock = [...L].sort();
     return true;
@@ -435,7 +481,7 @@ export class Game {
     const pity = POT_TIERS[before].pity;
     const keep = [];
     for (const i of this.potLocks(it)) keep[i] = it.pot.lines[i];
-    const res = rollPot(before, Math.random, pity > 0 && it.pity >= pity, it.slot, keep);
+    const res = rollPot(before, Math.random, pity > 0 && it.pity >= pity, it.slot, keep, this.potLines(it));
     if (res.t > before) it.pity = 0;
     if (!it.pot) {
       it.pot = res;
@@ -461,6 +507,8 @@ export class Game {
   potBonus(key) {
     if (!this.rt.potCache) {
       const items = SLOT_IDS.filter((sl) => !(sl === 'shield' && this.twoHanded())).map((sl) => this.s.equip[sl]);
+      const ap = this.s.world.pets.active;
+      if (ap && this.s.world.pets.owned.includes(ap)) items.push(this.s.world.pets.data?.[ap]);
       this.rt.potCache = potSum(items);
     }
     return this.rt.potCache[key] || 0;
@@ -643,7 +691,44 @@ export class Game {
   }
 
   findEquipped(id) { return SLOT_IDS.find((sl) => this.s.equip[sl]?.id === id) || null; }
+  // ---------- 펫: 골드 강화 · 잠재능력 5줄 ----------
+  petData(id) {
+    const P = this.s.world.pets;
+    P.data ||= {};
+    const d = (P.data[id] ||= { enh: 0 });
+    d.id = 'pet:' + id;
+    d.slot = 'pet';
+    d.lvl = Math.max(1, this.s.maxStage || 1);
+    return d;
+  }
+  petEnhBonus(key) {
+    const ap = this.s.world.pets.active;
+    if (!ap || !PET_ENH[key]) return 0;
+    return (this.s.world.pets.data?.[ap]?.enh || 0) * PET_ENH[key];
+  }
+  petEnhCost(id) { return petEnhCost(this.s.maxStage, this.petData(id).enh); }
+  enhancePet(id) {
+    const d = this.petData(id);
+    if (!this.s.world.pets.owned.includes(id) || d.enh >= PET_ENH_MAX) return false;
+    const c = this.petEnhCost(id);
+    if (this.s.gold < c) return false;
+    this.s.gold -= c;
+    d.enh++;
+    this.dirtyStats();
+    return true;
+  }
+  // 이 펫을 데리고 다닐 때 기준 강화 1회 전투력 변화
+  petEnhDelta(id) {
+    const d = this.petData(id);
+    const P = this.s.world.pets;
+    return this.powerDelta(() => { const a = P.active; P.active = id; d.enh++; return () => { d.enh--; P.active = a; }; });
+  }
+
   findItem(id) {
+    if (typeof id === 'string' && id.startsWith('pet:')) {
+      const pid = id.slice(4);
+      return this.s.world.pets.owned.includes(pid) ? this.petData(pid) : undefined;
+    }
     for (const slot of SLOT_IDS) if (this.s.equip[slot]?.id === id) return this.s.equip[slot];
     return this.s.inv.find((x) => x.id === id);
   }

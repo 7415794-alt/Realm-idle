@@ -283,12 +283,25 @@ export function donate(game, id, mode = 'all') {
   if (setAfter > setBefore) game.toast(`🏆 ${ZONES[e.z].name} 세트 Lv ${setAfter}! ${bonusText(scale(ZONE_SET_BONUS[e.z], setAfter))}`, 'legend');
   return n;
 }
+// 다음 레벨까지 기증했을 때 전투력 변화
+export function museumDelta(game, id) {
+  const s = game.s;
+  const e = MUSEUM_BY[id];
+  if (!e || museumLevel(s, e) >= MUSEUM_MAX) return 0;
+  const old = s.world.museum[id];
+  return game.powerDelta(() => {
+    s.world.museum[id] = museumCumNeed(e.base, museumLevel(s, e) + 1);
+    mCache = null;
+    return () => { if (old === undefined) delete s.world.museum[id]; else s.world.museum[id] = old; mCache = null; };
+  });
+}
 // 전시 레벨 총합
 export const museumProgress = (s) => MUSEUM.reduce((n, e) => n + museumLevel(s, e), 0);
 
 // 펫 + 날씨 + 계절 + 박물관 효과 합
 export function worldBonus(s, key) {
-  return (activePet(s)?.bonus[key] || 0) + climateBonus(key) + museumBonus(s, key);
+  // 펫은 기본 수치 없음 (강화 · 잠재능력은 game.petEnhBonus · potBonus)
+  return climateBonus(key) + museumBonus(s, key);
 }
 
 // ---------- 스킬 보스 ----------
