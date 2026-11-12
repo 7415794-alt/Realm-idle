@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.5.0';
+export const VERSION = '3.5.1';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -360,29 +360,31 @@ export const POT_LINES = [
   { key: 'ls', b: 0.0015, w: 4 },
   { key: 'dr', b: 0.005, w: 4 },
   { key: 'regen', b: 0.0005, w: 4 },
-  { key: 'drop', b: 0.015, w: 4 },
-  { key: 'gold', b: 0.02, w: 4 },
-  // 특수 옵션: 부위마다 정해진 것만, 정해진 등급부터 나옴 (POT_SPECIAL)
-  { key: 'dmg', b: 0.008, w: 3, sp: true },
-  { key: 'boss', b: 0.02, w: 3, sp: true },
-  { key: 'pen', b: 0.008, w: 3, sp: true },
-  { key: 'cdmg', b: 0.02, w: 3, sp: true },
-  { key: 'spd', b: 0.006, w: 3, sp: true },
+  // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
+  // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
+  { key: 'dmg', b: 0.03, w: 8, sp: true },
+  { key: 'boss', b: 0.08, w: 8, sp: true },
+  { key: 'pen', b: 0.025, w: 8, sp: true },
+  { key: 'cdmg', b: 0.08, w: 8, sp: true },
+  { key: 'spd', b: 0.02, w: 8, sp: true },
+  { key: 'gold', b: 0.15, w: 8, sp: true },
+  { key: 'drop', b: 0.1, w: 8, sp: true },
 ];
-// 부위별 특수 옵션: [효과, 나오기 시작하는 등급(장비 등급 표 기준 번호)]
+export const POT_SP_MIN = 3; // 특수 옵션이 나오기 시작하는 등급 (영웅)
+// 부위별 특수 옵션 (부위마다 1개)
 export const POT_SPECIAL = {
-  weapon: [['dmg', 3], ['boss', 4], ['pen', 4]],
-  shield: [['dmg', 4], ['boss', 5]],
-  helm: [['cdmg', 3], ['pen', 5]],
-  body: [['dmg', 4], ['boss', 5]],
-  legs: [['dmg', 4], ['spd', 6]],
-  gloves: [['cdmg', 3], ['boss', 4], ['spd', 5]],
-  boots: [['spd', 4], ['cdmg', 5]],
-  amulet: [['boss', 3], ['cdmg', 4]],
-  ring1: [['pen', 4], ['dmg', 5]],
-  ring2: [['pen', 4], ['dmg', 5]],
-  cape: [['boss', 4], ['spd', 5]],
-  off: [['dmg', 3], ['pen', 4]],
+  weapon: 'dmg',
+  shield: 'boss',
+  helm: 'pen',
+  body: 'dmg',
+  legs: 'spd',
+  gloves: 'cdmg',
+  boots: 'spd',
+  amulet: 'gold',
+  ring1: 'drop',
+  ring2: 'drop',
+  cape: 'gold',
+  off: 'pen',
 };
 // 잠금: 잠근 줄 수에 따라 큐브(또는 골드) 소모 배수
 export const POT_LOCK_COST = [1, 3, 8];
@@ -392,8 +394,8 @@ export const potValue = (key, t) => {
 };
 // 이 부위 · 등급에서 나올 수 있는 옵션 (같은 옵션이 여러 줄에 겹쳐 나올 수 있음)
 export function potPool(slot, tier) {
-  const sp = new Set((POT_SPECIAL[slot] || []).filter(([, m]) => tier >= m).map(([k]) => k));
-  return POT_LINES.filter((l) => !l.sp || sp.has(l.key));
+  const sp = tier >= POT_SP_MIN ? POT_SPECIAL[slot] : null;
+  return POT_LINES.filter((l) => !l.sp || l.key === sp);
 }
 function potLine(tier, rnd, slot) {
   const pool = potPool(slot, tier);
@@ -425,7 +427,7 @@ export function potSum(items) {
   return out;
 }
 // 비교 점수에 쓰는 잠재능력 가치 (대략적인 전투력 환산)
-const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 20, drop: 0.3, gold: 0.3, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
+const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 20, drop: 0.03, gold: 0.03, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
 export function potScore(it, style) {
   if (!it?.pot) return 0;
   const X = 60 * power(it.lvl);

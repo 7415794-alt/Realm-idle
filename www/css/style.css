@@ -626,3 +626,8 @@ body.tab-gear .battle { height: 24vh; min-height: 150px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .chip { border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; font-size: 11.5px; padding: 4px 8px; border-radius: 999px; cursor: pointer; }
 .chip.on { border-color: var(--good); background: rgba(74, 222, 128, .2); }
+.chip.sp { color: #ffc94d; border-color: rgba(255, 201, 77, .5); }
+.chip.sp.on { background: rgba(255, 201, 77, .22); border-color: #ffc94d; }
+.chip.no { opacity: .3; filter: grayscale(1); cursor: not-allowed; }
+.cline.sp { color: #ffc94d; font-weight: 700; }
+.sptxt { color: #ffc94d; }

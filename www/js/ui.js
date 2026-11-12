@@ -1,6 +1,6 @@
 // DOM UI (탭, 강화 목록, 모달, 토스트)
 import {
-  STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_LOCK_COST, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
+  STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_SP_MIN, POT_LINES, POT_LOCK_COST, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
   VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
@@ -512,7 +512,7 @@ export class UI {
     const g = this.game;
     const s = g.s;
     const all = [...SLOT_IDS.map((sl) => s.equip[sl]).filter(Boolean), ...s.inv];
-    panel.appendChild(h('div', 'card note', `🎲 잠재 큐브 <b>${exact(s.life.bank.cube || 0)}</b>개 · 장비를 누르면 큐브 창이 열립니다. 잠재능력 등급은 장비 등급과 같은 ${POT_TIERS.length}단계이고, 같은 등급에서 일정 횟수를 돌리면 다음 등급이 확정(천장)됩니다. 부위마다 정해진 등급부터 특수 옵션(모든 피해 · 보스 피해 · 방어 무시 · 치명타 피해 · 공격 속도)이 나오고, 같은 옵션이 여러 줄에 겹쳐 나올 수 있습니다.`));
+    panel.appendChild(h('div', 'card note', `🎲 잠재 큐브 <b>${exact(s.life.bank.cube || 0)}</b>개 · 장비를 누르면 큐브 창이 열립니다. 잠재능력 등급은 장비 등급과 같은 ${POT_TIERS.length}단계이고, 같은 등급에서 일정 횟수를 돌리면 다음 등급이 확정(천장)됩니다. 부위마다 <b class="sptxt">★ 특수 옵션</b> 1개가 ${POT_TIERS[POT_SP_MIN].name} 등급부터 나오며 수치가 훨씬 큽니다 (${SLOT_IDS.map((sl) => `${SLOTS[sl].name} ${BONUS_NAMES[POT_SPECIAL[sl]]}`).join(' · ')}). 골드 · 드롭률은 특수 옵션으로만 나옵니다. 같은 옵션이 여러 줄에 겹쳐 나올 수 있습니다.`));
     if (!all.length) { panel.appendChild(h('div', 'muted center pad', '장비가 없습니다')); return; }
     for (const x of all) {
       const r = RARITIES[x.r];
@@ -555,10 +555,11 @@ export class UI {
       const want = new Set(cfg.keys);
       return `<div class="cpot" style="--pc:${T.color}"><div class="ctier">${T.name}</div>${pot.lines.map(([k, v], i) => {
         const lk = side === 'before' ? `<button class="lockbtn${locks.includes(i) ? ' on' : ''}" data-i="${i}" title="이 줄 잠그기">${locks.includes(i) ? '🔒' : '🔓'}</button>` : '';
-        return `<div class="cline${want.has(k) ? ' want' : ''}${locks.includes(i) ? ' locked' : ''}">${lineRow(k, v)}${lk}</div>`;
+        return `<div class="cline${want.has(k) ? ' want' : ''}${locks.includes(i) ? ' locked' : ''}${isSp(k) ? ' sp' : ''}">${lineRow(k, v)}${lk}</div>`;
       }).join('')}</div>`;
     };
     const keysFor = (it) => potPool(it.slot, POT_TIERS.length - 1).map((l) => l.key);
+    const isSp = (k) => !!POT_LINES.find((l) => l.key === k)?.sp;
 
     const draw = () => {
       const it = g.findItem(id);
@@ -568,8 +569,9 @@ export class UI {
       const T = POT_TIERS[t];
       const need = g.cubeNeed(it);
       const bank = s.life.bank.cube || 0;
-      const sp = (POT_SPECIAL[it.slot] || []).map(([k, m]) => `${BONUS_NAMES[k]}(${POT_TIERS[m].name}~)`).join(' · ');
+      const sp = POT_SPECIAL[it.slot] ? `<b class="sptxt">${BONUS_NAMES[POT_SPECIAL[it.slot]]}</b> (${POT_TIERS[POT_SP_MIN].name} 등급부터, 수치 큼)` : '';
       const after = it.potNew || opened;
+      cfg.keys = cfg.keys.filter((k) => keysFor(it).includes(k));
       if (cfg.tier <= t) cfg.tier = -1;
       win.innerHTML = `
         <div class="cwhead"><span class="ci">${itemIcon(it)}</span>
@@ -593,7 +595,8 @@ export class UI {
         <details class="cwauto"${this.cubeAutoOpen ? ' open' : ''}><summary>⏩ 자동 돌리기 · 원하는 결과에서 멈춤</summary>
           <label>목표 등급 <select class="atier"><option value="-1">설정 안 함</option>${POT_TIERS.map((p, i) => (i > t ? `<option value="${i}"${cfg.tier === i ? ' selected' : ''}>${p.name}</option>` : '')).join('')}</select></label>
           <div class="muted">원하는 옵션 (여러 개 고르면 그중 하나라도 해당)</div>
-          <div class="chips">${keysFor(it).map((k) => `<button class="chip${cfg.keys.includes(k) ? ' on' : ''}" data-k="${k}">${BONUS_NAMES[k]}</button>`).join('')}</div>
+          <div class="chips">${POT_LINES.map(({ key: k }) => { const can = keysFor(it).includes(k); return `<button class="chip${isSp(k) ? ' sp' : ''}${cfg.keys.includes(k) && can ? ' on' : ''}${can ? '' : ' no'}" data-k="${k}"${can ? '' : ' disabled'}>${isSp(k) ? '★ ' : ''}${BONUS_NAMES[k]}</button>`; }).join('')}</div>
+          <div class="muted">★ 특수 옵션 · 어두운 옵션은 이 부위에 나오지 않습니다</div>
           <label>원하는 옵션이 <select class="an">${[1, 2, 3].map((n) => `<option value="${n}"${cfg.n === n ? ' selected' : ''}>${n}줄 이상</option>`).join('')}</select> 나오면 멈춤</label>
           <label class="toggle"><input type="checkbox" class="agold"${cfg.gold ? ' checked' : ''}> 큐브가 떨어지면 골드로 계속</label>
           <div class="muted">목표 등급과 옵션을 둘 다 고르면 둘 다 만족할 때 멈춥니다.${auto ? ` · 자동 진행 ${rolls}회` : ''}</div>
