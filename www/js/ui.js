@@ -53,11 +53,16 @@ export class UI {
     this.dom = {
       gold: $('#gold'), essence: $('#essence'), dps: $('#dps'),
       stageName: $('#stageName'), zoneName: $('#zoneName'),
-      progFill: $('#progFill'), progText: $('#progText'), bossBtn: $('#bossBtn'),
+      progFill: $('#progFill'), progText: $('#progText'), bossBtn: $('#bossBtn'), speedBtn: $('#speedBtn'),
       panel: $('#panel'), skills: $('#skills'), toasts: $('#toasts'),
       modal: $('#modal'), modalBox: $('#modalBox'),
     };
     this.dom.bossBtn.addEventListener('click', () => this.game.toggleAutoAdvance());
+    this.dom.speedBtn.addEventListener('click', () => {
+      this.game.cycleSpeed();
+      this.updateSpeed();
+    });
+    this.updateSpeed();
     document.querySelectorAll('.tabs button').forEach((b) => {
       b.addEventListener('click', () => this.showTab(b.dataset.tab));
     });
@@ -66,6 +71,12 @@ export class UI {
     });
     this.buildSkills();
     this.showTab('hero');
+  }
+
+  updateSpeed() {
+    const sp = this.game.speed();
+    setText(this.dom.speedBtn, (sp > 1 ? '⏩' : '▶') + ' x' + sp);
+    this.dom.speedBtn.classList.toggle('fast', sp > 1);
   }
 
   // ---------- 매 프레임(약 6~7fps) 갱신 ----------
@@ -100,6 +111,7 @@ export class UI {
       btn.classList.toggle('pulse', s.kills >= STAGE_KILLS);
     }
 
+    this.updateSpeed();
     this.updateSkills();
     for (const u of this.updaters) u();
     if (this.tab === 'gear' && rt.invDirty) this.showTab('gear', true);

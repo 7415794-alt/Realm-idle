@@ -21,7 +21,17 @@ function pickWeighted(weights, rnd = Math.random) {
   return weights.length - 1;
 }
 
+export const SPEEDS = [1, 2, 4, 8, 16];
+
 export class Game {
+  // 게임 배속 (저장값이 잘못돼도 x1)
+  speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
+
+  cycleSpeed() {
+    const i = SPEEDS.indexOf(this.speed());
+    this.s.settings.speed = SPEEDS[(i + 1) % SPEEDS.length];
+  }
+
   constructor(state) {
     this.s = state;
     this.rt = {

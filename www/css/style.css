@@ -299,6 +299,8 @@ button:disabled { cursor: default; }
 .btn.danger { background: #7f1d1d; border-color: #b91c1c; }
 .btn.big { width: 100%; padding: 12px; font-size: 15px; margin-top: 8px; }
 #bossBtn { flex-shrink: 0; min-width: 92px; }
+#speedBtn { flex-shrink: 0; min-width: 56px; font-variant-numeric: tabular-nums; }
+#speedBtn.fast { background: linear-gradient(180deg, #f59e0b, #b45309); border-color: #fcd34d; color: #fff; }
 #bossBtn.pulse { animation: pulse 1s infinite; background: linear-gradient(180deg, #ef4444, #b91c1c); border-color: #fca5a5; }
 @keyframes pulse { 50% { transform: scale(1.06); } }
 

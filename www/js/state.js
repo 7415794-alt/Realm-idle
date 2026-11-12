@@ -18,7 +18,7 @@ export function newState() {
     inv: [],
     nextId: 1,
     autoSkill: false,
-    settings: { autoEquip: true, autoSell: 0, buyMult: 1 },
+    settings: { autoEquip: true, autoSell: 0, buyMult: 1, speed: 1 },
     stats: {
       kills: 0, bossKills: 0, goldEarned: 0, prestiges: 0, playTime: 0,
       essenceEarned: 0, taps: 0, items: 0,

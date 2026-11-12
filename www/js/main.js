@@ -37,10 +37,11 @@ function frame(now) {
     dt = 0;
   }
   const renderDt = Math.min(0.1, dt);
-  while (dt > 0) {
-    const step = Math.min(MAX_STEP, dt);
+  let simDt = dt * game.speed(); // 배속 적용 (오프라인 보상은 실제 시간 기준)
+  while (simDt > 0) {
+    const step = Math.min(MAX_STEP, simDt);
     game.update(step);
-    dt -= step;
+    simDt -= step;
   }
   renderer.draw(renderDt);
   if (++frameCount % 6 === 0) ui.refresh();
