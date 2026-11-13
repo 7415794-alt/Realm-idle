@@ -4,7 +4,7 @@
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
-  HERO_BASE, STAT_CAPS, tierLvl, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, STAT_CAPS, tierLvl, itemTier, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
@@ -619,9 +619,16 @@ export class Game {
     return itemScore(item, sty) - itemScore(eq[this.targetSlot(item)], sty);
   }
 
+  // 착용 중인 장비와 재질 단계 비교 (+: 상위, 0: 같음, -: 하위, 칸이 비어 있으면 +)
+  tierCmp(item) {
+    const eq = this.s.equip[this.targetSlot(item)];
+    return eq ? itemTier(item.lvl) - itemTier(eq.lvl) : 1;
+  }
+
   // keep: 조합 결과물(자동 판매하지 않음)
   giveItem(item, keep = false) {
-    if (this.s.settings.autoEquip && this.upgradeGain(item) > 0) this.putOn(item);
+    // 자동 장착: 하위 재질 장비는 등급이 높아 전투력이 더 높아도 상위 재질 장비를 밀어내지 않음
+    if (this.s.settings.autoEquip && this.tierCmp(item) >= 0 && this.upgradeGain(item) > 0) this.putOn(item);
     else this.stash(item, keep);
     this.rt.invDirty = true;
     // 자동 조합: 가방에 같은 부위 · 등급이 3개 모이면 바로 조합
@@ -642,9 +649,13 @@ export class Game {
 
   stash(item, keep = false) {
     const s = this.s;
-    // 자동 판매: 등급 기준 · 또는 착용 장비보다 낮은 장비
-    const lower = !keep && s.settings.sellLower && s.equip[this.targetSlot(item)] && this.upgradeGain(item) < 0;
-    if ((!keep && item.r < s.settings.autoSell) || lower || s.inv.length >= INV_MAX) this.addGold(itemSellPrice(item));
+    // 자동 판매: 착용 장비보다 상위 재질은 절대 팔지 않음(조합 재료)
+    //  - 하위 재질: '낮은 장비 자동 판매'가 켜져 있으면 판매
+    //  - 같은 재질: 등급 기준 자동 판매
+    const cmp = this.tierCmp(item);
+    const lower = !keep && s.settings.sellLower && cmp < 0;
+    const byRarity = !keep && cmp <= 0 && item.r < s.settings.autoSell;
+    if (lower || byRarity) this.addGold(itemSellPrice(item));
     else s.inv.push(item);
   }
 

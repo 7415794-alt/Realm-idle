@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.9.2';
+export const VERSION = '3.10.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -251,6 +251,9 @@ export const MATERIALS = ['청동', '철', '강철', '은강', '미스릴', '아
 // 장비 단계: 10레벨마다 한 단계 (재질 이름 하나 = 한 단계, 수치도 단계마다 고정)
 export const itemTier = (lvl) => Math.floor((Math.max(1, lvl) - 1) / 10);
 export const tierLvl = (lvl) => itemTier(lvl) * 10 + 5;
+// 재질 단계 배율: 한 단계 위 재질은 수치 x1.35 (같은 등급이면 확실히 좋고, 등급 약 3단계 차이를 뒤집음)
+export const TIER_GROW = 1.35;
+export const tierPow = (lvl) => 1.08 * Math.pow(TIER_GROW, itemTier(lvl));
 export const materialOf = (lvl) => {
   const t = itemTier(lvl);
   return t < MATERIALS.length ? MATERIALS[t] : `${MATERIALS[MATERIALS.length - 1]} ${t - MATERIALS.length + 2}`;
@@ -323,7 +326,7 @@ export const itemWeights = (it) => it.w || DEFAULT_W(itemStyle(it));
 export function itemStats(it) {
   const out = {};
   const R = RARITIES[it.r].mult;
-  const g = R * (1 + 0.05 * (it.enh || 0)) * power(it.lvl);
+  const g = R * (1 + 0.05 * (it.enh || 0)) * tierPow(it.lvl);
   const add = (k, v) => { out[k] = (out[k] || 0) + v; };
   for (const [k, v] of Object.entries(baseStats(it))) {
     if (k === 'off') {
@@ -347,7 +350,7 @@ export function offenseOf(st, style) {
 export function itemScore(it, style = 'melee') {
   if (!it) return 0;
   const st = itemStats(it);
-  const p = power(it.lvl);
+  const p = tierPow(it.lvl);
   return offenseOf(st, style) + (st.def || 0) * 0.5 + (st.hp || 0) * 0.15
     + ((st.crit || 0) * 30 + (st.ls || 0) * 300 + (st.dr || 0) * 150 + (st.regen || 0) * 1000) * p
     + potScore(it, style);

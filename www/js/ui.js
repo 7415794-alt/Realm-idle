@@ -541,7 +541,8 @@ export class UI {
     const sellOpts = ['끄기', ...RARITIES.slice(1, 9).map((r, i) => `${RARITIES[i].name} 이하`)];
     opts.innerHTML = `
       <label class="toggle"><input type="checkbox" id="optAutoEquip"> 더 좋은 장비 자동 장착</label>
-      <label class="toggle"><input type="checkbox" id="optSellLower"> 착용 장비보다 낮은 장비 자동 판매</label>
+      <label class="toggle"><input type="checkbox" id="optSellLower"> 착용 장비보다 하위 재질 장비 자동 판매</label>
+      <div class="muted">상위 재질 장비는 자동 판매하지 않음(조합 재료로 보관) · 하위 재질 장비는 등급이 높아도 자동 교체하지 않음 · 재질이 한 단계 높으면 수치 x1.35</div>
       <label>자동 판매 <select id="optAutoSell">${sellOpts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></label>
       <div class="muted">드롭률 6% · 보스는 등급을 4번, 지역 보스는 8번 굴려 가장 좋은 등급 · 최고 획득 등급 <b style="color:${RARITIES[s.stats.bestRarity || 0].color}">${RARITIES[s.stats.bestRarity || 0].name}</b></div>`;
     panel.appendChild(opts);
