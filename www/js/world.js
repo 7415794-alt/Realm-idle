@@ -480,6 +480,12 @@ export function worldTick(game) {
     s.world.sbWeek = w;
     s.world.sb = {};
   }
+  // 박물관 자동 기증 (설정에서 켜기/끄기)
+  if (s.settings.autoMuseum) {
+    let any = 0;
+    for (const e of MUSEUM) if ((s.life.bank[e.id] || 0) > 0 && !museumMaxed(s, e)) any += donate(game, e.id, 'all');
+    if (any) game.rt.museumAuto = (game.rt.museumAuto || 0) + any;
+  }
 }
 
 export function questClaimable(s) {

@@ -2,7 +2,7 @@
 import {
   STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_SP_MIN, POT_LINES, POT_LOCK_COST, STAT_CAPS, PET_ENH, PET_ENH_MAX, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
-  VIP, STYLES, PCT_STATS, materialOf, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
+  VIP, STYLES, PCT_STATS, ITEM_SP, hasItemSp, itemSpValue, STAT_NAMES, materialOf, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
@@ -481,6 +481,18 @@ export class UI {
     const styTag = ist ? ` <span class="stag s-${ist}">주력 ${STYLES[ist].name}</span>` : '';
     const sd = equipped ? g.slotData(it.slot) : null;
     const potTag = sd?.pot ? `<div class="potline" style="color:${POT_TIERS[sd.pot.t].color}">◆ 칸 잠재 ${POT_TIERS[sd.pot.t].name} · ${sd.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}</div>` : '';
+    // 기본 옵션(부위 · 종류 · 등급 · 재질로 고정)과 ★ 특수 옵션(부위마다 고정, 희귀부터)을 나눠 표시
+    const baseSt = itemStats(sd?.enh ? { ...it, enh: sd.enh } : it);
+    const spKey = ITEM_SP[it.slot];
+    let spTag = '';
+    if (spKey) {
+      if (hasItemSp(it)) {
+        const v = itemSpValue(it);
+        baseSt[spKey] -= v;
+        if (baseSt[spKey] < 1e-9) delete baseSt[spKey];
+        spTag = `<div class="ispline">★ 특수 옵션 · ${STAT_NAMES[spKey]} +${statVal(spKey, v)}</div>`;
+      } else spTag = `<div class="ispline off">★ 특수 옵션 · ${STAT_NAMES[spKey]} (희귀 등급부터)</div>`;
+    }
     const el = h('div', 'item' + (equipped ? ' equipped' : ''));
     el.style.setProperty('--rc', rar.color);
     let diff = '';
@@ -494,7 +506,7 @@ export class UI {
       <div class="iicon">${icon}</div>
       <div class="iinfo">
         <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)}${sd?.enh ? ` <span class="stag">칸 +${sd.enh}</span>` : ''}${styTag}</div>
-        <div class="istat">${statText(itemStats(sd?.enh ? { ...it, enh: sd.enh } : it))}${extra} ${diff}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>${potTag}
+        <div class="istat">${statText(baseSt)}${extra} ${diff}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>${spTag}${potTag}
       </div>
       <div class="ibtns"></div>`;
     const btns = $('.ibtns', el);
@@ -541,6 +553,7 @@ export class UI {
     const sellOpts = ['끄기', ...RARITIES.slice(1, 9).map((r, i) => `${RARITIES[i].name} 이하`)];
     opts.innerHTML = `
       <label class="toggle"><input type="checkbox" id="optAutoEquip"> 더 좋은 장비 자동 장착</label>
+      <label class="toggle"><input type="checkbox" id="optAutoMuseum"> 🏛️ 고유 전리품 박물관 자동 기증</label>
       <label class="toggle"><input type="checkbox" id="optSellLower"> 착용 장비보다 하위 재질 장비 자동 판매</label>
       <div class="muted">상위 재질 장비는 자동 판매하지 않음(조합 재료로 보관) · 하위 재질 장비는 등급이 높아도 자동 교체하지 않음 · 재질이 한 단계 높으면 수치 x1.35</div>
       <label>자동 판매 <select id="optAutoSell">${sellOpts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></label>
@@ -549,6 +562,9 @@ export class UI {
     const ae = $('#optAutoEquip', opts);
     ae.checked = s.settings.autoEquip;
     ae.addEventListener('change', () => { s.settings.autoEquip = ae.checked; });
+    const am = $('#optAutoMuseum', opts);
+    am.checked = !!s.settings.autoMuseum;
+    am.addEventListener('change', () => { s.settings.autoMuseum = am.checked; this.toast(am.checked ? '🏛️ 박물관 자동 기증 켜짐' : '🏛️ 박물관 자동 기증 꺼짐'); });
     const sl = $('#optSellLower', opts);
     sl.checked = !!s.settings.sellLower;
     sl.addEventListener('change', () => { s.settings.sellLower = sl.checked; });
@@ -1209,6 +1225,9 @@ export class UI {
     const tot = museumTotals(s);
     const sum = Object.keys(tot).length ? bonusText(tot) : '아직 없음';
     panel.appendChild(h('div', 'card note', `🏛️ 전시 레벨 합계 ${fmt(museumProgress(s))} / ${fmt(MUSEUM.length * MUSEUM_MAX)} · 지금 효과: ${sum}`));
+    const amBox = h('label', 'toggle card', `<input type="checkbox" ${s.settings.autoMuseum ? 'checked' : ''}> 🏛️ 자동 기증 (고유 전리품을 얻는 대로 기증 · 제작 · 연금술 재료도 함께 쓰임)`);
+    $('input', amBox).addEventListener('change', (ev) => { s.settings.autoMuseum = ev.target.checked; this.toast(ev.target.checked ? '🏛️ 박물관 자동 기증 켜짐' : '🏛️ 박물관 자동 기증 꺼짐'); });
+    panel.appendChild(amBox);
     panel.appendChild(h('div', 'muted pad', `몬스터 고유 전리품을 기증해 전시 레벨을 올리세요 (종류마다 최대 Lv ${MUSEUM_MAX}). 레벨마다 효과가 조금씩 쌓이고, 다음 레벨일수록 더 많이 필요합니다. 한 지역 6종 중 가장 낮은 레벨이 그 지역의 세트 레벨이 되어 세트 효과도 레벨만큼 쌓입니다.`));
     this.museumOpen ||= { 0: true };
     ZONES.forEach((zone, z) => {

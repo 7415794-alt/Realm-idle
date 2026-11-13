@@ -25,7 +25,7 @@ export function newState() {
     },
     inv: [],
     nextId: 3,
-    settings: { autoEquip: true, autoSell: 0, sellLower: true, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
+    settings: { autoEquip: true, autoSell: 0, sellLower: true, autoMuseum: false, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
     life: newLifeState(),
     world: newWorldState(),
     stats: {
