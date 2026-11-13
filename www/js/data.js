@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.16.0';
+export const VERSION = '3.17.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -19,8 +19,9 @@ export const power = (lvl) => Math.pow(1.02, Math.max(1, lvl) - 1);
 export const MON_GROWTH = 1.0427;
 export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
 // 골드는 예전 계산식의 1/100 (번 골드 · 쓰는 골드 모두)
-// 성장률 1.13 → 1.10: 후반 골드가 고정 비용(칸 강화 · 도구) 대비 너무 빨리 불어나지 않게
-export const goldPerKill = (s) => (2 * Math.pow(1.1, s - 1)) / 100;
+// 처치당 골드 = 0.02 x 레벨^1.5 (지수 증가 X → 레벨 300에서도 약 104)
+// 칸 강화 · 도구 같은 고정 비용이 후반에도 의미 있게 유지됨
+export const goldPerKill = (s) => 0.02 * Math.pow(Math.max(1, s), 1.5);
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
