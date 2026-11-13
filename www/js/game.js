@@ -5,7 +5,7 @@ import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
   HERO_BASE, STAT_CAPS, tierLvl, itemTier, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
-  STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
+  STYLE_IDS, SPECIALS, ceilN, ceilP, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
 import { fmt } from './format.js';
@@ -102,23 +102,24 @@ export class Game {
     const s = this.s;
     const all = buffMult(s, 'atk') * (1 + this.bonus('atk'));
     return {
-      melee: g.melee * all * (1 + this.bonus('melee')),
-      rng: g.rng * all * (1 + this.bonus('rng')),
-      mag: g.mag * all * (1 + this.bonus('mag')),
-      def: g.def * buffMult(s, 'def') * (1 + this.bonus('def')),
-      hp: g.hp * buffMult(s, 'hp') * (1 + this.bonus('hp')),
-      crit: Math.min(STAT_CAPS.crit, g.crit + this.bonus('crit')),
-      ls: Math.min(STAT_CAPS.ls, g.ls + this.bonus('ls')),
-      dr: Math.min(STAT_CAPS.dr, g.dr + this.bonus('dr')),
-      regen: Math.min(STAT_CAPS.regen, g.regen + this.bonus('regen')),
-      dmg: 1 + Math.min(STAT_CAPS.dmg, this.bonus('dmg')),
+      // 모든 수치 올림: 일반 수치는 정수, 퍼센트는 1% 단위 (표시 = 실제 적용값)
+      melee: ceilN(g.melee * all * (1 + this.bonus('melee'))),
+      rng: ceilN(g.rng * all * (1 + this.bonus('rng'))),
+      mag: ceilN(g.mag * all * (1 + this.bonus('mag'))),
+      def: ceilN(g.def * buffMult(s, 'def') * (1 + this.bonus('def'))),
+      hp: ceilN(g.hp * buffMult(s, 'hp') * (1 + this.bonus('hp'))),
+      crit: Math.min(STAT_CAPS.crit, ceilP(g.crit + this.bonus('crit'))),
+      ls: Math.min(STAT_CAPS.ls, ceilP(g.ls + this.bonus('ls'))),
+      dr: Math.min(STAT_CAPS.dr, ceilP(g.dr + this.bonus('dr'))),
+      regen: Math.min(STAT_CAPS.regen, ceilP(g.regen + this.bonus('regen'))),
+      dmg: 1 + Math.min(STAT_CAPS.dmg, ceilP(this.bonus('dmg'))),
       // 특수 옵션 (잠재능력 · 생활 스킬)
-      boss: Math.min(STAT_CAPS.boss, this.bonus('boss')),
-      pen: Math.min(STAT_CAPS.pen, this.bonus('pen')),
-      cdmg: CRIT_MULT + Math.min(STAT_CAPS.cdmg, this.bonus('cdmg')),
-      spd: Math.min(STAT_CAPS.spd, this.bonus('spd')),
-      gold: Math.min(STAT_CAPS.gold, this.bonus('gold')),
-      drop: Math.min(STAT_CAPS.drop, this.bonus('drop')),
+      boss: Math.min(STAT_CAPS.boss, ceilP(this.bonus('boss'))),
+      pen: Math.min(STAT_CAPS.pen, ceilP(this.bonus('pen'))),
+      cdmg: CRIT_MULT + Math.min(STAT_CAPS.cdmg, ceilP(this.bonus('cdmg'))),
+      spd: Math.min(STAT_CAPS.spd, ceilP(this.bonus('spd'))),
+      gold: Math.min(STAT_CAPS.gold, ceilP(this.bonus('gold'))),
+      drop: Math.min(STAT_CAPS.drop, ceilP(this.bonus('drop'))),
     };
   }
 
@@ -354,6 +355,7 @@ export class Game {
   }
 
   addGold(g) {
+    g = Math.ceil(g - 1e-9); // 골드는 항상 정수 (올림)
     this.s.gold += g;
     this.s.stats.goldEarned += g;
     questEvent(this.s, 'gold', g);
@@ -629,6 +631,14 @@ export class Game {
     return eq ? itemTier(item.lvl) - itemTier(eq.lvl) : 1;
   }
 
+  // 최고 등급까지 올려도 착용 장비를 넘지 못하는 장비인지
+  neverBetter(item) {
+    const eq = this.s.equip[this.targetSlot(item)];
+    if (!eq) return false;
+    const sty = this.style();
+    return itemScore({ ...item, r: RARITIES.length - 1 }, sty) < itemScore(eq, sty);
+  }
+
   // keep: 조합 결과물(자동 판매하지 않음)
   giveItem(item, keep = false) {
     // 자동 장착: 하위 재질 장비는 등급이 높아 전투력이 더 높아도 상위 재질 장비를 밀어내지 않음
@@ -657,7 +667,8 @@ export class Game {
     //  - 하위 재질: '낮은 장비 자동 판매'가 켜져 있으면 판매
     //  - 같은 재질: 등급 기준 자동 판매
     const cmp = this.tierCmp(item);
-    const lower = !keep && s.settings.sellLower && cmp < 0;
+    // 하위 재질이거나, 최고 등급(에테르)까지 조합해도 지금 착용 장비보다 약하면 판매
+    const lower = !keep && s.settings.sellLower && (cmp < 0 || this.neverBetter(item));
     const byRarity = !keep && cmp <= 0 && item.r < s.settings.autoSell;
     if (lower || byRarity) this.addGold(itemSellPrice(item));
     else s.inv.push(item);

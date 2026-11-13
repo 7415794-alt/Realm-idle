@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.17.1';
+export const VERSION = '3.18.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -21,7 +21,7 @@ export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
 // 골드는 예전 계산식의 1/100 (번 골드 · 쓰는 골드 모두)
 // 처치당 골드 = 0.02 x 레벨^1.5 (지수 증가 X → 레벨 300에서도 약 104)
 // 칸 강화 · 도구 같은 고정 비용이 후반에도 의미 있게 유지됨
-export const goldPerKill = (s) => 0.02 * Math.pow(Math.max(1, s), 1.5);
+export const goldPerKill = (s) => Math.ceil(0.02 * Math.pow(Math.max(1, s), 1.5));
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
@@ -29,6 +29,7 @@ export function monsterStats(stage, kind = 'normal') {
   const ease = Math.min(1, 0.4 + 0.04 * (stage - 1)); // 초반(Lv 16 미만) 완화
   const m = { hp: 40 * p * ease, def: 5 * p, str: 21 * p * ease * ease, interval: 2 };
   if (kind === 'zoneBoss') { m.hp *= 5; m.def *= 1.25; m.str *= 1.3; m.interval = 1.8; }
+  m.hp = Math.ceil(m.hp); m.def = Math.ceil(m.def); m.str = Math.ceil(m.str);
   return m;
 }
 
@@ -301,6 +302,10 @@ export const STAT_NAMES = {
   crit: '치명타', ls: '흡혈', dr: '피해 감소', regen: '초당 회복',
 };
 export const PCT_STATS = ['crit', 'ls', 'dr', 'regen'];
+// 모든 수치는 소수점 올림: 일반 수치는 정수, 퍼센트 수치는 1% 단위 (표시 = 실제 적용값)
+export const ceilN = (v) => Math.ceil(v - 1e-9);
+export const ceilP = (v) => Math.ceil(v * 100 - 1e-7) / 100;
+export const ceilStat = (k, v) => (PCT_STATS.includes(k) ? ceilP(v) : ceilN(v));
 const GROW = ['melee', 'rng', 'mag', 'def', 'hp', 'off'];
 // 영웅(3등급) 이상 장비에 붙는 특수 옵션 (기본값, 등급 배율 적용)
 export const SPECIALS = { crit: 0.025, ls: 0.012, dr: 0.02, regen: 0.004 };
@@ -347,6 +352,7 @@ export function itemStats(it) {
     } else add(k, GROW.includes(k) ? v * g : v * R * (1 + 0.1 * itemTier(it.lvl)) * e);
   }
   if (hasItemSp(it) && ITEM_SP[it.slot]) add(ITEM_SP[it.slot], itemSpValue(it) * e);
+  for (const k of Object.keys(out)) out[k] = ceilStat(k, out[k]);
   return out;
 }
 
@@ -390,9 +396,9 @@ export const POT_LINES = [
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
   { key: 'dmg', b: 0.06, w: 8, sp: true },
-  { key: 'boss', b: 0.16, w: 8, sp: true },
+  { key: 'boss', b: 0.24, w: 8, sp: true },
   { key: 'pen', b: 0.04, w: 8, sp: true },
-  { key: 'cdmg', b: 0.16, w: 8, sp: true },
+  { key: 'cdmg', b: 0.24, w: 8, sp: true },
   { key: 'spd', b: 0.035, w: 8, sp: true },
   { key: 'gold', b: 0.1, w: 8, sp: true },
   { key: 'drop', b: 0.2, w: 8, sp: true },
@@ -420,7 +426,7 @@ export const POT_LOCK_COST = [1, 3, 8, 20, 50];
 export const PET_POT_LINES = 5;
 export const PET_ENH_MAX = 50;
 export const PET_ENH = { atk: 0.015, def: 0.02, hp: 0.02 }; // 강화 1레벨당
-export const petEnhCost = (lvl, L) => goldPerKill(Math.max(1, lvl)) * 35 * Math.pow(1.23, L); // 평생 유지되므로 예전보다 조금 비쌈
+export const petEnhCost = (lvl, L) => Math.ceil(goldPerKill(Math.max(1, lvl)) * 35 * Math.pow(1.23, L)); // 평생 유지되므로 예전보다 조금 비쌈
 export const potValue = (key, t) => {
   const l = POT_LINES.find((x) => x.key === key);
   return l ? Math.round(l.b * POT_MULT(t) * 1e4) / 1e4 : 0;
@@ -456,7 +462,7 @@ export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep
 // 잠재능력 합 (장착 장비)
 export function potSum(items) {
   const out = {};
-  for (const it of items) if (it?.pot) for (const [k, v] of it.pot.lines) out[k] = (out[k] || 0) + v;
+  for (const it of items) if (it?.pot) for (const [k, v] of it.pot.lines) out[k] = (out[k] || 0) + ceilP(v);
   return out;
 }
 // 비교 점수에 쓰는 잠재능력 가치 (대략적인 전투력 환산)
@@ -470,7 +476,7 @@ export function potScore(it, style) {
   return s;
 }
 // 큐브 가격(골드로 살 때): 아이템 레벨 기준
-export const cubeGoldCost = (lvl) => goldPerKill(Math.max(1, lvl)) * 60;
+export const cubeGoldCost = (lvl) => Math.ceil(goldPerKill(Math.max(1, lvl)) * 60);
 
 export const itemNoun = (it) => {
   if (it.slot === 'weapon') return WEAPONS[it.kind || 'sword'].noun;
@@ -478,11 +484,11 @@ export const itemNoun = (it) => {
   return s.nouns ? s.nouns[it.aff || 'melee'] : s.noun;
 };
 export const itemName = (it) => `${materialOf(it.lvl)} ${itemNoun(it)}` + (it.enh > 0 ? ` +${it.enh}` : '');
-export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5);
+export const itemSellPrice = (it) => Math.ceil(goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5));
 // 장비칸 강화는 평생 유지되므로 비쌈 (예전보다 조금 비쌈)
-export const enhanceCost = (o) => Math.round(ENHANCE_COST * ENHANCE_GROW ** ((o && o.enh) || 0));
+export const enhanceCost = (o) => Math.ceil(ENHANCE_COST * ENHANCE_GROW ** ((o && o.enh) || 0));
 
-export const statVal = (k, v) => (PCT_STATS.includes(k) ? (v * 100).toFixed(k === 'regen' ? 2 : 1) + '%' : fmt(v));
+export const statVal = (k, v) => (PCT_STATS.includes(k) ? Math.ceil(v * 100 - 1e-7) + '%' : fmt(v));
 export function statText(st) {
   return Object.entries(st).map(([k, v]) => `${STAT_NAMES[k]} ${statVal(k, v)}`).join(' · ');
 }

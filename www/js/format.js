@@ -5,8 +5,8 @@ export function fmt(n) {
   if (n === undefined || n === null || Number.isNaN(n)) return '0';
   if (!Number.isFinite(n)) return '∞';
   if (n < 0) return '-' + fmt(-n);
-  // 1000조 미만은 단위 없이 숫자 그대로 (쉼표, 소수점 둘째 자리까지)
-  if (n < 1e15) return n.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+  // 1000조 미만은 단위 없이 숫자 그대로 (쉼표, 소수점은 올림)
+  if (n < 1e15) return Math.ceil(n - 1e-9).toLocaleString('ko-KR');
   const e = Math.floor(Math.log10(n) / 3);
   let suf;
   if (e < SUFFIX.length) {

@@ -39,7 +39,7 @@ const FLAT = ['regen', 'ls', 'dr', 'crit'];
 export function bonusText(b) {
   return Object.entries(b).map(([k, v]) => {
     if (k.startsWith('x_')) return `${LIFE[k.slice(2)].name} 결과물 2배 ${Math.round(v * 100)}%`;
-    return `${BONUS_NAMES[k]} +${Math.round(v * 1000) / 10}%${FLAT.includes(k) ? 'p' : ''}`;
+    return `${BONUS_NAMES[k]} +${Math.ceil(v * 100 - 1e-7)}%${FLAT.includes(k) ? 'p' : ''}`;
   }).join(', ');
 }
 
@@ -176,7 +176,7 @@ const MONSTER_PET_CHANCE = 1e-4;
 const WEATHER_PET_CHANCE = 5e-5;
 const SKILL_PET_CHANCE = 1 / 15000;
 
-export const petCost = (p) => goldPerKill(p.stage) * 1000;
+export const petCost = (p) => Math.ceil(goldPerKill(p.stage) * 1000);
 export function hasPet(s, id) { return s.world.pets.owned.includes(id); }
 export function activePet(s) { const id = s.world.pets.active; return id && hasPet(s, id) ? PET[id] : null; }
 

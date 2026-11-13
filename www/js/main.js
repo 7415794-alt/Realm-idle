@@ -24,7 +24,8 @@ function restartWith(state) {
   saveLocked = true;
   if (state) saveState(state);
   else clearState();
-  location.reload();
+  // 뒤로가기 기록(history)을 건드리지 않도록 지금 주소로 새로 열기
+  setTimeout(() => location.replace(location.href.split('#')[0]), 30);
 }
 
 function frame(now) {

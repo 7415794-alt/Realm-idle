@@ -543,7 +543,7 @@ export function perkText(s, skillId) {
 }
 
 export function matValue(s, id) {
-  return MATS[id].value * goldPerKill(Math.max(1, s.maxStage));
+  return Math.ceil(MATS[id].value * goldPerKill(Math.max(1, s.maxStage)));
 }
 
 export function hasInputs(s, act, times = 1) {

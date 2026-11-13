@@ -21,8 +21,8 @@ import {
 const $ = (sel, root = document) => root.querySelector(sel);
 const isRingSlot = (slot) => slot === 'ring1' || slot === 'ring2';
 // 정확한 숫자 (쉼표 구분, 아주 크면 단위 표기 함께)
-const exact = (v) => (!Number.isFinite(v) ? '∞' : Math.abs(v) < 1e15 ? v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : fmt(v));
-const pct = (v) => (v * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+const exact = (v) => (!Number.isFinite(v) ? '∞' : Math.abs(v) < 1e15 ? Math.ceil(v - 1e-9).toLocaleString('ko-KR') : fmt(v));
+const pct = (v) => Math.ceil(v * 100 - 1e-7) + '%';
 
 // 재료 사용처 (생활 스킬 레시피 · 도구 · 박물관)
 let USES = null;
@@ -565,7 +565,7 @@ export class UI {
       <label class="toggle"><input type="checkbox" id="optAutoEquip"> 더 좋은 장비 자동 장착</label>
       <label class="toggle"><input type="checkbox" id="optAutoMuseum"> 🏛️ 고유 전리품 박물관 자동 기증</label>
       <label class="toggle"><input type="checkbox" id="optSellLower"> 착용 장비보다 하위 재질 장비 자동 판매</label>
-      <div class="muted">상위 재질 장비는 자동 판매하지 않음(조합 재료로 보관) · 하위 재질 장비는 등급이 높아도 자동 교체하지 않음 · 재질이 한 단계 높으면 수치 x1.35</div>
+      <div class="muted">하위 재질 장비 · 최고 등급(에테르)까지 조합해도 착용 장비보다 약한 장비는 판매, 그 밖의 상위 재질 장비는 보관(조합 재료) · 하위 재질 장비는 등급이 높아도 자동 교체하지 않음 · 재질이 한 단계 높으면 수치 x1.35</div>
       <label>자동 판매 <select id="optAutoSell">${sellOpts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></label>
       <div class="muted">드롭률 6% · 보스는 등급을 4번, 지역 보스는 8번 굴려 가장 좋은 등급 · 최고 획득 등급 <b style="color:${RARITIES[s.stats.bestRarity || 0].color}">${RARITIES[s.stats.bestRarity || 0].name}</b></div>`;
     panel.appendChild(opts);
@@ -728,11 +728,14 @@ export class UI {
         if (auto) { stopAuto(); draw(); return; }
         if (cfg.tier < 0 && !cfg.keys.length) { this.toast('목표 등급이나 원하는 옵션을 골라 주세요', 'bad'); return; }
         rolls = 0;
+        // 예전보다 10배 빠르게: 0.11초마다 10번 돌리고 화면은 한 번만 그림
         auto = setInterval(() => {
-          const r = roll(false);
-          if (!r) { stopAuto('큐브(또는 골드)가 부족해 멈췄습니다'); draw(); return; }
-          rolls++;
-          if (done(r)) { stopAuto(`🎯 원하는 결과가 나와 멈췄습니다 (${rolls}회)`); }
+          for (let i = 0; i < 10; i++) {
+            const r = roll(false);
+            if (!r) { stopAuto('큐브(또는 골드)가 부족해 멈췄습니다'); break; }
+            rolls++;
+            if (done(r)) { stopAuto(`🎯 원하는 결과가 나와 멈췄습니다 (${rolls}회)`); break; }
+          }
           draw();
         }, 110);
         draw();
@@ -1595,7 +1598,7 @@ export class UI {
             try {
               const st2 = importState($('textarea', box).value);
               this.hooks.onImport(st2);
-              return false;
+              return true; // 창을 닫지 않음: 닫으면 뒤로가기 기록 정리가 새로고침을 취소함
             } catch (e) {
               console.warn('세이브 불러오기 실패', e);
               const msg = e?.message && /[가-힣]/.test(e.message) ? e.message : `불러오기 실패: ${e?.message || e}`;
@@ -1613,7 +1616,7 @@ export class UI {
     const bReset = h('button', 'btn danger', '데이터 초기화');
     bReset.addEventListener('click', () => {
       this.modal('정말 초기화할까요?', '<p>모든 진행 상황이 삭제되며 되돌릴 수 없습니다.</p>',
-        [{ label: '취소' }, { label: '초기화', cls: 'danger', onClick: () => { clearState(); this.hooks.onReset(); } }]);
+        [{ label: '취소' }, { label: '초기화', cls: 'danger', onClick: () => { clearState(); this.hooks.onReset(); return true; } }]);
     });
     sv.append(bSave, bExport, bImport, bReset);
     panel.appendChild(sv);
