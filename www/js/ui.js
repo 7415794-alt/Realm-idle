@@ -2,7 +2,7 @@
 import {
   STYLE_IDS, POT_TIERS, POT_SPECIAL, POT_SP_MIN, POT_LINES, POT_LOCK_COST, STAT_CAPS, PET_ENH, PET_ENH_MAX, potPool, potValue, SLOTS, SLOT_IDS, ZONES, RARITIES, WEAPONS, BOSS_TIME, BOSS_MI, AUTO_STREAK, MUSEUM, MUSEUM_MAX, ZONE_SET_BONUS,
   monsterInfo, monLevel, zoneTitle, INV_MAX, ENHANCE_MAX, GAME_NAME, VERSION, CRIT_MULT,
-  VIP, STYLES, PCT_STATS, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
+  VIP, STYLES, PCT_STATS, materialOf, zoneOf, itemName, itemStats, itemStyle, itemSellPrice, enhanceCost, goldPerKill, statText, statVal, incomingHit, defEfficiency,
 } from './data.js';
 import { fmt, fmtPct, fmtTime } from './format.js';
 import { exportState, importState, clearState } from './state.js';
@@ -21,7 +21,7 @@ import {
 const $ = (sel, root = document) => root.querySelector(sel);
 const isRingSlot = (slot) => slot === 'ring1' || slot === 'ring2';
 // 정확한 숫자 (쉼표 구분, 아주 크면 단위 표기 함께)
-const exact = (v) => (!Number.isFinite(v) ? '∞' : Math.abs(v) < 1e15 ? (Math.round(v * 10) / 10).toLocaleString('ko-KR', { maximumFractionDigits: 1 }) : fmt(v));
+const exact = (v) => (!Number.isFinite(v) ? '∞' : Math.abs(v) < 1e15 ? v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : fmt(v));
 const pct = (v) => (v * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
 
 // 재료 사용처 (생활 스킬 레시피 · 도구 · 박물관)
@@ -493,7 +493,7 @@ export class UI {
     el.innerHTML = `
       <div class="iicon">${icon}</div>
       <div class="iinfo">
-        <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)} <small>Lv${it.lvl}</small>${sd?.enh ? ` <span class="stag">칸 +${sd.enh}</span>` : ''}${styTag}</div>
+        <div class="iname"><span class="rtag" style="color:${rar.color}">[${rar.name}]</span> ${itemName(it)}${sd?.enh ? ` <span class="stag">칸 +${sd.enh}</span>` : ''}${styTag}</div>
         <div class="istat">${statText(itemStats(sd?.enh ? { ...it, enh: sd.enh } : it))}${extra} ${diff}${inactive ? ' <span class="diff down">양손 무기로 비활성</span>' : ''}</div>${potTag}
       </div>
       <div class="ibtns"></div>`;
@@ -541,12 +541,16 @@ export class UI {
     const sellOpts = ['끄기', ...RARITIES.slice(1, 9).map((r, i) => `${RARITIES[i].name} 이하`)];
     opts.innerHTML = `
       <label class="toggle"><input type="checkbox" id="optAutoEquip"> 더 좋은 장비 자동 장착</label>
+      <label class="toggle"><input type="checkbox" id="optSellLower"> 착용 장비보다 낮은 장비 자동 판매</label>
       <label>자동 판매 <select id="optAutoSell">${sellOpts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></label>
       <div class="muted">드롭률 6% · 보스는 등급을 4번, 지역 보스는 8번 굴려 가장 좋은 등급 · 최고 획득 등급 <b style="color:${RARITIES[s.stats.bestRarity || 0].color}">${RARITIES[s.stats.bestRarity || 0].name}</b></div>`;
     panel.appendChild(opts);
     const ae = $('#optAutoEquip', opts);
     ae.checked = s.settings.autoEquip;
     ae.addEventListener('change', () => { s.settings.autoEquip = ae.checked; });
+    const sl = $('#optSellLower', opts);
+    sl.checked = !!s.settings.sellLower;
+    sl.addEventListener('change', () => { s.settings.sellLower = sl.checked; });
     const as = $('#optAutoSell', opts);
     as.value = String(Math.min(s.settings.autoSell, sellOpts.length - 1));
     as.addEventListener('change', () => { s.settings.autoSell = Number(as.value); });
@@ -555,7 +559,7 @@ export class UI {
     const tbl = h('details', 'card rartable', `<summary>장비 등급 ${RARITIES.length}단계 보기</summary><div class="rgrid">${RARITIES.map((r) => `<span style="color:${r.color}">${r.name} x${r.mult}</span>`).join('')}</div>`);
     panel.appendChild(tbl);
 
-    const head = h('div', 'section-title', `가방 (${s.inv.length}/${INV_MAX})`);
+    const head = h('div', 'section-title', `가방 (${s.inv.length})`);
     const bulk = h('button', 'btn small', '희귀 이하 일괄 판매');
     bulk.addEventListener('click', () => {
       const r = g.sellBelow(2);
@@ -564,8 +568,16 @@ export class UI {
     head.appendChild(bulk);
     panel.appendChild(head);
     if (!s.inv.length) panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다'));
+    // 가방은 무제한: 한 번에 그리는 수를 제한하고 '더 보기'
     const sorted = [...s.inv].sort((a, b) => g.upgradeGain(b) - g.upgradeGain(a));
-    for (const it of sorted) panel.appendChild(this.itemCard(it, false));
+    this.bagShow ||= 40;
+    for (const it of sorted.slice(0, this.bagShow)) panel.appendChild(this.itemCard(it, false));
+    if (sorted.length > this.bagShow) {
+      const more = h('button', 'btn', `더 보기 (${sorted.length - this.bagShow}개 남음)`);
+      more.style.width = '100%';
+      more.addEventListener('click', () => { this.bagShow += 40; this.showTab('gear', true); });
+      panel.appendChild(more);
+    }
   }
 
   // 큐브 탭: 장착 · 가방 장비 목록 → 누르면 큐브 창
@@ -1001,10 +1013,10 @@ export class UI {
         const running = L.active?.skill === k.id && L.active.action === a.id;
         const parts = [];
         if (a.in) parts.push('필요: ' + Object.entries(a.in).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
-        if (a.out) parts.push('획득: ' + matList(a.out));
-        if (a.equip) parts.push(`획득: ${a.equip.kinds ? a.equip.kinds.map((k) => WEAPONS[k].name).join('/') : a.equip.slots.map((x) => SLOTS[x].name).join('/')} · <span style="color:${RARITIES[a.equip.r].color}">${RARITIES[a.equip.r].name}</span> 이상 · Lv${Math.max(1, s.maxStage)}`);
+        if (a.out) parts.push('획득: ' + Object.entries(a.out).map(([id, n]) => `${MATS[id].icon}${MATS[id].name} ${n} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
+        if (a.equip) parts.push(`획득: ${a.equip.kinds ? a.equip.kinds.map((k) => WEAPONS[k].name).join('/') : a.equip.slots.map((x) => SLOTS[x].name).join('/')} · <span style="color:${RARITIES[a.equip.r].color}">${RARITIES[a.equip.r].name}</span> 이상 · ${materialOf(s.maxStage)} 단계`);
         if (a.gold) parts.push(`골드 약 ${fmt(a.gold * g.goldMult() * goldPerKillAt(s))}`);
-        if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)}`).join(', '));
+        if (a.extra) parts.push('확률: ' + a.extra.map(([id, p]) => `${MATS[id].icon}${MATS[id].name} ${fmtPct(p, 1)} (보유 ${fmt(L.bank[id] || 0)})`).join(', '));
         const extra = [`XP ${fmt(actionXp(s, a))}`, `${actionTime(s, k.id, a).toFixed(1)}초 (x${speedMult(s, k.id, a).toFixed(2)})`];
         if (k.id === 'thief') extra.push(`성공 ${fmtPct(stealChance(s, a))}`);
         const bc = burnChance(s, k.id, a);

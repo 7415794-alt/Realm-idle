@@ -4,7 +4,7 @@
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
-  HERO_BASE, STAT_CAPS, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
+  HERO_BASE, STAT_CAPS, tierLvl, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
@@ -57,7 +57,7 @@ export class Game {
   }
 
   // 기도 + 펫 + 날씨 효과 합
-  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key) + this.petEnhBonus(key) + lifeSpecial(this.s, key); }
+  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key) + this.petEnhBonus(key) + lifeSpecial(this.s, key) + (STYLES[this.style()].perk?.[key] || 0); }
 
   // 게임 배속 (저장값이 잘못돼도 x1)
   speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
@@ -68,9 +68,11 @@ export class Game {
 
   // ---------- 능력치 ----------
   weaponDef() { const w = this.s.equip.weapon; return w ? WEAPONS[w.kind || 'sword'] : null; }
-  twoHanded() { return !!this.weaponDef()?.twoHand; }
+  twoHanded() { return false; } // 양손 무기 개념 없음
   // 전투 방식: 직접 선택 (근접 · 원거리 · 마법)
-  style() { return STYLES[this.s.settings.style] ? this.s.settings.style : 'melee'; }
+  style() { return this._sty || (STYLES[this.s.settings.style] ? this.s.settings.style : 'melee'); }
+  // 다른 방식이었다면의 계산 (분석용)
+  withStyle(sid, fn) { const o = this._sty; this._sty = sid; this.dirtyStats(); try { return fn(); } finally { this._sty = o; this.dirtyStats(); } }
   setStyle(id) {
     if (!STYLES[id]) return;
     this.s.settings.style = id;
@@ -144,11 +146,11 @@ export class Game {
   powerOf(st = this.stats()) {
     const sty = STYLES[this.style()];
     const atk = st[sty.stat] * (sty.stat === 'mag' ? 0.8 : 0.85);
-    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.1);
+    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.25);
     const surv = st.hp * 0.3 + st.def * 2;
-    const sustain = 1 + st.ls * 3 + st.dr * 1.5 + st.regen * 10;
+    const sustain = 1 + st.ls * 2 + st.dr * 1.2 + st.regen * 4;
     const eco = 1 + (st.gold + st.drop) * 0.02;
-    return (off * 10 + surv) * sustain * eco;
+    return ((off * 10 + surv) * sustain * eco) / 100; // 숫자가 너무 커지지 않게 1/100
   }
   powerScore() { return this.powerOf(); }
   // 바꿔 보고 전투력 차이를 잰 뒤 되돌림. change()는 되돌리는 함수를 돌려줌
@@ -442,7 +444,7 @@ export class Game {
       return { ...x, gain: r.kpm / Math.max(1e-9, now.kpm) - 1, dpsGain: r.dps / now.dps - 1, incCut: 1 - r.net / (now.net || 1) };
     }).sort((a, b) => b.gain - a.gain);
     // 방식별 지금 장비 DPS
-    const styles = STYLE_IDS.map((sid) => ({ id: sid, ...this.combatCalc(base, sid, m) }));
+    const styles = STYLE_IDS.map((sid) => ({ id: sid, ...this.withStyle(sid, () => this.combatCalc(this.stats(), sid, m)) }));
     return { now, rows, styles, m, danger: now.killsPerLife < 30 };
   }
 
@@ -538,14 +540,14 @@ export class Game {
   // spec: { slot, kind?, aff? } 정해진 장비, 없으면 무작위
   newItem(slot, r, lvl, spec = {}) {
     const s = this.s;
-    const item = { id: s.nextId++, slot, r, lvl: Math.max(1, lvl), enh: 0 };
+    const item = { id: s.nextId++, slot, r, lvl: tierLvl(lvl), enh: 0 }; // 단계(재질)마다 같은 수치
     if (slot === 'weapon') item.kind = spec.kind || WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
     // 주력 방식: 무기는 종류대로, 나머지는 지정값 → 아니면 60% 확률로 지금 전투 방식
     if (slot !== 'weapon') item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
     // 근접 · 원거리 · 마법 비율 (장비마다 다름)
     item.w = rollWeights(slot === 'weapon' ? WEAPONS[item.kind].style : item.aff);
     // 영웅 등급 이상(또는 전리품 공예): 특수 옵션 1개
-    if (r >= 3 || spec.sp) {
+    if (r >= 2 || spec.sp) {
       const keys = Object.keys(SPECIALS);
       const k = keys[Math.floor(Math.random() * keys.length)];
       item.sp = { [k]: SPECIALS[k] * (0.7 + Math.random() * 0.6) };
@@ -640,7 +642,9 @@ export class Game {
 
   stash(item, keep = false) {
     const s = this.s;
-    if ((!keep && item.r < s.settings.autoSell) || s.inv.length >= INV_MAX) this.addGold(itemSellPrice(item));
+    // 자동 판매: 등급 기준 · 또는 착용 장비보다 낮은 장비
+    const lower = !keep && s.settings.sellLower && s.equip[this.targetSlot(item)] && this.upgradeGain(item) < 0;
+    if ((!keep && item.r < s.settings.autoSell) || lower || s.inv.length >= INV_MAX) this.addGold(itemSellPrice(item));
     else s.inv.push(item);
   }
 

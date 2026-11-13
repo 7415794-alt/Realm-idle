@@ -5,7 +5,7 @@ import { WEAPONS, potValue } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export function newState() {
   return {
@@ -25,7 +25,7 @@ export function newState() {
     },
     inv: [],
     nextId: 3,
-    settings: { autoEquip: true, autoSell: 0, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
+    settings: { autoEquip: true, autoSell: 0, sellLower: true, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
     life: newLifeState(),
     world: newWorldState(),
     stats: {
@@ -51,9 +51,19 @@ function migrate(obj) {
   if (obj.v < 4) obj = migrateV3(obj);
   if (obj.v < 5) obj = migrateV4(obj);
   if (obj.v < 6) obj = migrateV5(obj);
+  if (obj.v < 7) obj = migrateV6(obj);
   return obj;
 }
 // v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
+// v6 → v7: 골드 1/100, 장비 레벨을 단계(재질)로 맞춤, 칸 강화 최대 99 · 하위 장비 자동 판매
+function migrateV6(obj) {
+  const o = { ...obj, v: 7 };
+  o.gold = (o.gold || 0) / 100;
+  o.settings = { ...(o.settings || {}), sellLower: true };
+  const snap = (lvl) => Math.floor((Math.max(1, lvl || 1) - 1) / 10) * 10 + 5;
+  for (const it of [...Object.values(o.equip || {}), ...(o.inv || [])]) if (it) it.lvl = snap(it.lvl);
+  return o;
+}
 // v5(장비별 강화 · 잠재능력) → v6(장비칸 강화 · 잠재능력): 착용 장비의 것을 그 칸으로 옮김, 가방 장비의 것은 사라짐
 const SLOT_KEYS = ['enh', 'pot', 'potNew', 'pity', 'potLock'];
 function migrateV5(obj) {

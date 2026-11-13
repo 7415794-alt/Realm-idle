@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.8.0';
+export const VERSION = '3.9.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -10,7 +10,7 @@ export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 export const BOSS_TIME = 40;        // 지역 보스 제한 시간(초)
 export const RESPAWN = 0.35;        // 몬스터 재등장 시간
 export const HERO_REVIVE = 4;       // 영웅 부활 시간
-export const INV_MAX = 60;          // 가방 칸 수
+export const INV_MAX = Infinity;    // 가방 무제한
 export const OFFLINE_CAP = 6 * 3600; // 오프라인 최대 시간(초)
 
 // 성장 곡선: 몬스터가 장비보다 조금 더 빨리 강해짐 → 높은 등급 · 강화 · 제작이 필요
@@ -18,7 +18,8 @@ export const OFFLINE_CAP = 6 * 3600; // 오프라인 최대 시간(초)
 export const power = (lvl) => Math.pow(1.02, Math.max(1, lvl) - 1);
 export const MON_GROWTH = 1.0427;
 export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
-export const goldPerKill = (s) => 2 * Math.pow(1.13, s - 1);
+// 골드는 예전 계산식의 1/100 (번 골드 · 쓰는 골드 모두)
+export const goldPerKill = (s) => (2 * Math.pow(1.13, s - 1)) / 100;
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
@@ -33,13 +34,17 @@ export function monsterStats(stage, kind = 'normal') {
 // 전투 방식은 무기로 결정: 근접(공격+힘) · 원거리(원거리) · 마법(마법)
 // 전투 방식은 직접 선택. 모든 장비에 근접 · 원거리 · 마법 수치가 따로 붙어 있고, 고른 방식의 수치만 피해에 쓰임
 export const STYLES = {
-  melee: { name: '근접', icon: '⚔️', stat: 'melee', desc: '최대 피해 = 근접 x 0.85 - 몬스터 방어 x 0.3' },
-  ranged: { name: '원거리', icon: '🏹', stat: 'rng', desc: '최대 피해 = 원거리 x 0.85 - 몬스터 방어 x 0.3' },
-  magic: { name: '마법', icon: '🔮', stat: 'mag', desc: '최대 피해 = 마법 x 0.8 - 몬스터 방어 x 0.22 (방어 일부 관통)' },
+  // perk: 방식별 장점 (능력치에 더해짐)
+  melee: { name: '근접', icon: '⚔️', stat: 'melee', perk: { hp: 0.2, def: 0.15, ls: 0.02 },
+    desc: '최대 피해 = 근접 x 0.85 - 몬스터 방어 x 0.3 · 장점: 체력 +20% · 방어 +15% · 흡혈 +2%p (튼튼함)' },
+  ranged: { name: '원거리', icon: '🏹', stat: 'rng', perk: { crit: 0.12, cdmg: 0.4, dr: 0.12, spd: 0.1 },
+    desc: '최대 피해 = 원거리 x 0.85 - 몬스터 방어 x 0.3 · 장점: 치명타 +12%p · 치명타 피해 +40%p · 공격 속도 +10% · 받는 피해 -12%p (거리 유지)' },
+  magic: { name: '마법', icon: '🔮', stat: 'mag', perk: { pen: 0.25, dmg: 0.15, boss: 0.3, regen: 0.01 },
+    desc: '최대 피해 = 마법 x 0.8 - 몬스터 방어 x 0.22 · 장점: 방어 무시 +25%p · 모든 피해 +15% · 보스 피해 +30% · 초당 회복 +1%p' },
 };
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
-export const STAT_CAPS = { crit: 0.75, ls: 0.2, dr: 0.6, regen: 0.05, pen: 0.6, spd: 1, dmg: 3, boss: 5, cdmg: 5, gold: 10, drop: 5 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.7, spd: 1, dmg: 5, boss: 8, cdmg: 8, gold: 20, drop: 10 };
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -242,8 +247,14 @@ export function rollRarity(luck = 1, rnd = Math.random) {
 
 // ---- 장비 ----
 // 재질: 아이템 레벨 10마다 한 단계
-export const MATERIALS = ['청동', '철', '강철', '은강', '미스릴', '아다만', '룬', '용린', '별철', '에테르', '공허', '태초'];
-export const materialOf = (lvl) => MATERIALS[Math.min(MATERIALS.length - 1, Math.floor((Math.max(1, lvl) - 1) / 10))];
+export const MATERIALS = ['청동', '철', '강철', '은강', '미스릴', '아다만', '룬', '용린', '별철', '에테르', '공허', '태초', '성운', '천공', '영원', '신성', '창조', '무한'];
+// 장비 단계: 10레벨마다 한 단계 (재질 이름 하나 = 한 단계, 수치도 단계마다 고정)
+export const itemTier = (lvl) => Math.floor((Math.max(1, lvl) - 1) / 10);
+export const tierLvl = (lvl) => itemTier(lvl) * 10 + 5;
+export const materialOf = (lvl) => {
+  const t = itemTier(lvl);
+  return t < MATERIALS.length ? MATERIALS[t] : `${MATERIALS[MATERIALS.length - 1]} ${t - MATERIALS.length + 2}`;
+};
 
 // 부위별 기본 능력치 (레벨 1 · 일반 기준)
 // off: 공격 수치 → 장비마다 굴린 비율(w)에 따라 근접 · 원거리 · 마법 세 가지 수치로 각각 붙음
@@ -251,15 +262,15 @@ export const materialOf = (lvl) => MATERIALS[Math.min(MATERIALS.length - 1, Math
 export const SLOTS = {
   weapon: { name: '무기', icon: '🗡️' },
   shield: { name: '방패', icon: '🛡️', noun: '방패', stats: { off: 1, def: 8, hp: 20, dr: 0.01 } },
-  helm: { name: '투구', icon: '⛑️', noun: '투구', stats: { off: 1, def: 5, hp: 10 } },
+  helm: { name: '투구', icon: '⛑️', noun: '투구', stats: { off: 1, def: 5, hp: 10, crit: 0.01 } },
   body: { name: '갑옷', icon: '🥋', noun: '갑옷', stats: { off: 1.5, def: 12, hp: 30 } },
   legs: { name: '각반', icon: '👖', noun: '각반', stats: { off: 1, def: 9, hp: 20 } },
   gloves: { name: '장갑', icon: '🧤', nouns: { melee: '건틀릿', ranged: '사수 장갑', magic: '마법사 장갑' }, stats: { off: 3, crit: 0.02 } },
-  boots: { name: '장화', icon: '👢', noun: '장화', stats: { off: 1, def: 3, hp: 10 } },
-  amulet: { name: '목걸이', icon: '📿', nouns: { melee: '전사의 목걸이', ranged: '명사수 목걸이', magic: '현자의 목걸이' }, stats: { off: 4, crit: 0.015 } },
+  boots: { name: '장화', icon: '👢', noun: '장화', stats: { off: 1, def: 3, hp: 10, ls: 0.003 } },
+  amulet: { name: '목걸이', icon: '📿', nouns: { melee: '전사의 목걸이', ranged: '명사수 목걸이', magic: '현자의 목걸이' }, stats: { off: 4, crit: 0.015, ls: 0.004 } },
   ring1: { name: '반지 1', icon: '💍', nouns: { melee: '힘의 반지', ranged: '매의 반지', magic: '마력의 반지' }, stats: { off: 2, ls: 0.004 } },
   ring2: { name: '반지 2', icon: '💍', nouns: { melee: '힘의 반지', ranged: '매의 반지', magic: '마력의 반지' }, stats: { off: 2, ls: 0.004 } },
-  cape: { name: '망토', icon: '🧣', noun: '망토', stats: { off: 1, def: 4, hp: 15, regen: 0.002 } },
+  cape: { name: '망토', icon: '🧣', noun: '망토', stats: { off: 1, def: 4, hp: 15, regen: 0.005 } },
   off: { name: '보조장비', icon: '📘', nouns: { melee: '숫돌', ranged: '화살통', magic: '마도서' }, stats: { off: 3 } },
 };
 export const SLOT_IDS = Object.keys(SLOTS);
@@ -272,11 +283,11 @@ export const isRing = (slot) => slot === 'ring1' || slot === 'ring2';
 export const WEAPONS = {
   sword: { style: 'melee', noun: '한손검', stats: { off: 12 }, minHit: 0.1, speed: 1.0 },
   blade: { style: 'melee', noun: '장검', stats: { off: 14 }, minHit: 0, speed: 0.95 },
-  great: { style: 'melee', noun: '양손검', stats: { off: 25 }, minHit: 0, speed: 0.75, twoHand: true },
+  great: { style: 'melee', noun: '대검', stats: { off: 18 }, minHit: 0, speed: 0.75 },
   xbow: { style: 'ranged', noun: '석궁', stats: { off: 15 }, minHit: 0.05, speed: 0.9 },
-  bow: { style: 'ranged', noun: '장궁', stats: { off: 24 }, minHit: 0.03, speed: 1.0, twoHand: true },
+  bow: { style: 'ranged', noun: '장궁', stats: { off: 14 }, minHit: 0.03, speed: 1.0 },
   wand: { style: 'magic', noun: '마법봉', stats: { off: 15, ls: 0.01 }, minHit: 0, speed: 0.9 },
-  staff: { style: 'magic', noun: '지팡이', stats: { off: 27 }, minHit: 0, speed: 0.8, twoHand: true },
+  staff: { style: 'magic', noun: '지팡이', stats: { off: 18 }, minHit: 0, speed: 0.8 },
 };
 export const WEAPON_IDS = Object.keys(WEAPONS);
 
@@ -287,8 +298,10 @@ export const STAT_NAMES = {
 export const PCT_STATS = ['crit', 'ls', 'dr', 'regen'];
 const GROW = ['melee', 'rng', 'mag', 'def', 'hp', 'off'];
 // 영웅(3등급) 이상 장비에 붙는 특수 옵션 (기본값, 등급 배율 적용)
-export const SPECIALS = { crit: 0.015, ls: 0.006, dr: 0.015, regen: 0.002 };
-export const ENHANCE_MAX = 10;
+export const SPECIALS = { crit: 0.025, ls: 0.012, dr: 0.02, regen: 0.004 };
+// 장비칸 강화: 최대 99, 비용은 고정 (평생 유지되므로 비쌈)
+export const ENHANCE_MAX = 99;
+export const ENHANCE_COST = 5000;
 
 export function baseStats(it) {
   return it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'].stats : SLOTS[it.slot].stats;
@@ -309,7 +322,7 @@ export const itemWeights = (it) => it.w || DEFAULT_W(itemStyle(it));
 export function itemStats(it) {
   const out = {};
   const R = RARITIES[it.r].mult;
-  const g = R * (1 + 0.1 * (it.enh || 0)) * power(it.lvl);
+  const g = R * (1 + 0.05 * (it.enh || 0)) * power(it.lvl);
   const add = (k, v) => { out[k] = (out[k] || 0) + v; };
   for (const [k, v] of Object.entries(baseStats(it))) {
     if (k === 'off') {
@@ -356,19 +369,19 @@ export const POT_LINES = [
   { key: 'atk', b: 0.01, w: 6 },
   { key: 'def', b: 0.02, w: 8 },
   { key: 'hp', b: 0.02, w: 8 },
-  { key: 'crit', b: 0.005, w: 6 },
-  { key: 'ls', b: 0.0015, w: 4 },
+  { key: 'crit', b: 0.008, w: 10 },
+  { key: 'ls', b: 0.003, w: 8 },
   { key: 'dr', b: 0.005, w: 4 },
-  { key: 'regen', b: 0.0005, w: 4 },
+  { key: 'regen', b: 0.002, w: 6 },
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
-  { key: 'dmg', b: 0.03, w: 8, sp: true },
-  { key: 'boss', b: 0.08, w: 8, sp: true },
-  { key: 'pen', b: 0.025, w: 8, sp: true },
-  { key: 'cdmg', b: 0.08, w: 8, sp: true },
-  { key: 'spd', b: 0.02, w: 8, sp: true },
-  { key: 'gold', b: 0.15, w: 8, sp: true },
-  { key: 'drop', b: 0.1, w: 8, sp: true },
+  { key: 'dmg', b: 0.06, w: 8, sp: true },
+  { key: 'boss', b: 0.16, w: 8, sp: true },
+  { key: 'pen', b: 0.04, w: 8, sp: true },
+  { key: 'cdmg', b: 0.16, w: 8, sp: true },
+  { key: 'spd', b: 0.035, w: 8, sp: true },
+  { key: 'gold', b: 0.3, w: 8, sp: true },
+  { key: 'drop', b: 0.2, w: 8, sp: true },
 ];
 export const POT_SP_MIN = 3; // 특수 옵션이 나오기 시작하는 등급 (영웅)
 // 부위별 특수 옵션 (부위마다 1개)
@@ -433,7 +446,7 @@ export function potSum(items) {
   return out;
 }
 // 비교 점수에 쓰는 잠재능력 가치 (대략적인 전투력 환산)
-const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 20, drop: 0.03, gold: 0.03, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
+const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 5, drop: 0.03, gold: 0.03, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
 export function potScore(it, style) {
   if (!it?.pot) return 0;
   const X = 60 * power(it.lvl);
@@ -453,7 +466,7 @@ export const itemNoun = (it) => {
 export const itemName = (it) => `${materialOf(it.lvl)} ${itemNoun(it)}` + (it.enh > 0 ? ` +${it.enh}` : '');
 export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5);
 // 장비칸 강화는 평생 유지되므로 비쌈 (예전보다 조금 비쌈)
-export const enhanceCost = (it) => goldPerKill(it.lvl) * 30 * Math.pow(1.65, it.enh || 0);
+export const enhanceCost = () => ENHANCE_COST;
 
 export const statVal = (k, v) => (PCT_STATS.includes(k) ? (v * 100).toFixed(k === 'regen' ? 2 : 1) + '%' : fmt(v));
 export function statText(st) {
