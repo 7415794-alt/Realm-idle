@@ -195,11 +195,11 @@ export const BUFFS = {
 // 채집 도구: 골드 + 주괴로 업그레이드, 채집 속도 배율
 const TOOL_TIERS = [
   { pre: '낡은', speed: 1, lvl: 1, gold: 0, mats: {} },
-  { pre: '구리', speed: 1.5, lvl: 10, gold: 3, mats: { bar_bronze: 5 } },
-  { pre: '철', speed: 2.2, lvl: 25, gold: 50, mats: { bar_iron: 10 } },
-  { pre: '미스릴', speed: 3.2, lvl: 40, gold: 1e3, mats: { bar_mithril: 15 } },
+  { pre: '구리', speed: 1.5, lvl: 10, gold: 50, mats: { bar_bronze: 5 } },
+  { pre: '철', speed: 2.2, lvl: 25, gold: 500, mats: { bar_iron: 10 } },
+  { pre: '미스릴', speed: 3.2, lvl: 40, gold: 5e3, mats: { bar_mithril: 15 } },
   { pre: '아다만', speed: 4.5, lvl: 55, gold: 3e4, mats: { bar_adamant: 20 } },
-  { pre: '에테르', speed: 6.5, lvl: 70, gold: 1e6, mats: { bar_adamant: 40, rune_chaos: 10 } },
+  { pre: '에테르', speed: 6.5, lvl: 70, gold: 2e5, mats: { bar_adamant: 40, rune_chaos: 10 } },
 ];
 export const TOOLS = {
   wood: { name: '도끼', icon: '🪓', tiers: TOOL_TIERS },
@@ -210,11 +210,11 @@ export const TOOLS = {
     name: '작업대', icon: '🛠️',
     tiers: [
       { pre: '허름한', speed: 1, gold: 0, mats: {} },
-      { pre: '튼튼한', speed: 1.3, gold: 5, mats: { log_oak: 50 } },
-      { pre: '장인의', speed: 1.7, gold: 100, mats: { log_pine: 50, bar_bronze: 10 } },
-      { pre: '명장의', speed: 2.2, gold: 2e3, mats: { log_maple: 50, bar_iron: 20 } },
+      { pre: '튼튼한', speed: 1.3, gold: 100, mats: { log_oak: 50 } },
+      { pre: '장인의', speed: 1.7, gold: 1e3, mats: { log_pine: 50, bar_bronze: 10 } },
+      { pre: '명장의', speed: 2.2, gold: 1e4, mats: { log_maple: 50, bar_iron: 20 } },
       { pre: '대가의', speed: 2.8, gold: 5e4, mats: { log_yew: 50, bar_mithril: 20 } },
-      { pre: '전설의', speed: 3.5, gold: 2e6, mats: { log_world: 50, bar_adamant: 20 } },
+      { pre: '전설의', speed: 3.5, gold: 3e5, mats: { log_world: 50, bar_adamant: 20 } },
     ],
   },
 };

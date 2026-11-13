@@ -169,7 +169,11 @@ export class UI {
     const s = g.s;
     const rt = g.rt;
     const d = this.dom;
-    setText(d.gold, fmt(s.gold));
+    // 골드는 잘리지 않게 전부 표시: 길어지면 글자를 줄임
+    const gt = fmt(s.gold);
+    setText(d.gold, gt);
+    const gl = gt.length > 15 ? 'xl' : gt.length > 11 ? 'l' : '';
+    if (d.gold.dataset.len !== gl) { d.gold.dataset.len = gl; }
     setText(d.power, fmt(g.powerScore()));
     setText(d.dps, fmt(g.totalDps()));
     const tg = s.target;
