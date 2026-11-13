@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.10.0';
+export const VERSION = '3.11.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -320,7 +320,13 @@ export function rollWeights(primary, rnd = Math.random) {
   return w;
 }
 const DEFAULT_W = (p) => Object.fromEntries(STYLE_IDS.map((k) => [k, k === p ? 0.9 : 0.3]));
-export const itemWeights = (it) => it.w || DEFAULT_W(itemStyle(it));
+// 비율은 무작위가 아니라 고정 (주력 방식 0.9 · 나머지 0.3)
+export const itemWeights = (it) => DEFAULT_W(itemStyle(it));
+// 장비 특수 옵션: 부위마다 고정 (희귀 등급부터 · 전리품 공예는 등급과 상관없이)
+export const ITEM_SP = { weapon: 'crit', shield: 'dr', helm: 'crit', body: 'dr', legs: 'regen', gloves: 'crit', boots: 'ls', amulet: 'ls', ring1: 'ls', ring2: 'ls', cape: 'regen', off: 'dr' };
+export const hasItemSp = (it) => it.r >= 2 || !!it.sp;
+// 특수 옵션 수치: 등급 배율 x 재질 단계마다 +10%
+export const itemSpValue = (it) => SPECIALS[ITEM_SP[it.slot]] * RARITIES[it.r].mult * (1 + 0.1 * itemTier(it.lvl));
 
 // 장비 최종 능력치
 export function itemStats(it) {
@@ -334,9 +340,9 @@ export function itemStats(it) {
       add('melee', v * g * w.melee);
       add('rng', v * g * w.ranged);
       add('mag', v * g * w.magic);
-    } else add(k, GROW.includes(k) ? v * g : v * R);
+    } else add(k, GROW.includes(k) ? v * g : v * R * (1 + 0.1 * itemTier(it.lvl)));
   }
-  if (it.sp) for (const [k, v] of Object.entries(it.sp)) add(k, v * R);
+  if (hasItemSp(it) && ITEM_SP[it.slot]) add(ITEM_SP[it.slot], itemSpValue(it));
   return out;
 }
 

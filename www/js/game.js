@@ -544,13 +544,10 @@ export class Game {
     if (slot === 'weapon') item.kind = spec.kind || WEAPON_IDS[Math.floor(Math.random() * WEAPON_IDS.length)];
     // 주력 방식: 무기는 종류대로, 나머지는 지정값 → 아니면 60% 확률로 지금 전투 방식
     if (slot !== 'weapon') item.aff = spec.aff || (Math.random() < 0.6 ? this.style() : STYLE_IDS[Math.floor(Math.random() * STYLE_IDS.length)]);
-    // 근접 · 원거리 · 마법 비율 (장비마다 다름)
-    item.w = rollWeights(slot === 'weapon' ? WEAPONS[item.kind].style : item.aff);
     // 영웅 등급 이상(또는 전리품 공예): 특수 옵션 1개
     if (r >= 2 || spec.sp) {
-      const keys = Object.keys(SPECIALS);
-      const k = keys[Math.floor(Math.random() * keys.length)];
-      item.sp = { [k]: SPECIALS[k] * (0.7 + Math.random() * 0.6) };
+      // 수치는 부위 · 등급 · 재질로 고정 (itemSpValue), 여기서는 보장 여부만 기록
+      item.sp = true;
     }
     if (!spec.noCount) {
       s.stats.items++;
@@ -800,7 +797,6 @@ export class Game {
     const slot = isRing(best.slot) ? 'ring1' : best.slot;
     const item = this.newItem(slot, best.r + 1, Math.max(...use.map((x) => x.lvl)), { kind: best.kind, aff: best.aff, noCount: true });
     item.enh = Math.max(...use.map((x) => x.enh || 0));
-    if (best.w) item.w = best.w;
     const withPot = use.filter((x) => x.pot).sort((a, b) => b.pot.t - a.pot.t)[0];
     if (withPot) item.pot = withPot.pot;
     s.stats.combines = (s.stats.combines || 0) + 1;
