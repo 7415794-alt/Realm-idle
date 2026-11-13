@@ -1338,8 +1338,8 @@ export class UI {
       <div class="rb-top"><b>🔄 환생</b> <span class="muted">환생 ${exact(P.count || 0)}회 · 누적 ✨ ${exact(P.total || 0)} · 최고 몬스터 Lv ${exact(Math.max(P.best || 0, s.maxStage || 0))}</span></div>
       <div class="rb-pts">✨ 프레스티지 <b class="rb-have"></b></div>
       <div class="muted rb-gain"></div>
-      <div class="muted">초기화: 골드 · 장비(가방 포함) · 장비칸 강화 · 생활 스킬 레벨 · 재료 · 도구 · 몬스터 단계 · 지역<br>
-      유지: 🏛️ 박물관 · 📘 생활 스킬 수련 · 🎲 잠재능력 / 추가 잠재능력 · 큐브 · 🐾 펫 · 📜 퀘스트 · 설정 · ✨ 프레스티지 강화</div>
+      <div class="muted">초기화: 골드 · 장비(가방 포함) · 장비칸 강화 · 생활 스킬 레벨 · 재료 · 도구 · 몬스터 단계 · 지역 · 🎲 큐브 · 🐾 펫(강화 · 잠재능력 포함)<br>
+      유지: 🏛️ 박물관 · 📘 생활 스킬 수련 · 장비칸 잠재능력 / 추가 잠재능력 · 📜 퀘스트 · 설정 · ✨ 프레스티지 강화</div>
       <button class="btn primary rb-btn"></button>`);
     panel.appendChild(top);
     const have = $('.rb-have', top);
@@ -1348,7 +1348,7 @@ export class UI {
     btn.addEventListener('click', () => {
       if (!g.canRebirth()) return;
       const n = g.rebirthGain();
-      this.modal('🔄 환생할까요?', `<p>✨ 프레스티지 <b>${exact(n)}</b>을 얻고 처음부터 다시 시작합니다.</p><p class="muted">골드 · 장비 · 칸 강화 · 생활 스킬 레벨 · 재료가 초기화됩니다. 박물관 · 수련 · 잠재능력 · 큐브 · 펫 · 프레스티지 강화는 유지됩니다.</p>`, [
+      this.modal('🔄 환생할까요?', `<p>✨ 프레스티지 <b>${exact(n)}</b>을 얻고 처음부터 다시 시작합니다.</p><p class="muted">골드 · 장비 · 칸 강화 · 생활 스킬 레벨 · 재료 · 큐브 · 펫이 초기화됩니다. 박물관 · 수련 · 장비칸 잠재능력 · 프레스티지 강화는 유지됩니다.</p>`, [
         { label: '취소' },
         { label: '🔄 환생', cls: 'primary', onClick: () => {
           const r = g.rebirth();

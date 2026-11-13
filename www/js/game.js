@@ -95,7 +95,7 @@ export class Game {
   enhCost(o) { return Math.ceil(enhanceCost(o) * (1 - Math.min(0.9, this.prestigeBonus('edisc')))); }
   rebirthGain() { return prestigeGain(this.s.maxStage || 0, 1 + this.prestigeBonus('pgain')); }
   canRebirth() { return (this.s.maxStage || 0) >= REBIRTH_MIN; }
-  // 환생: 대부분 초기화 · 박물관 · 수련 · 잠재능력 · 큐브 · 펫 · 퀘스트 · 설정 · 프레스티지는 유지
+  // 환생: 대부분 초기화 (큐브 · 펫 포함) · 박물관 · 수련 · 장비칸 잠재능력 · 퀘스트 · 설정 · 프레스티지는 유지
   rebirth() {
     if (!this.canRebirth()) return null;
     const s = this.s;
@@ -106,7 +106,6 @@ export class Game {
     P.count = (P.count || 0) + 1;
     P.best = Math.max(P.best || 0, s.maxStage || 0);
     P.bestZone = Math.max(P.bestZone || 0, s.maxZone || 0);
-    const cube = s.life.bank.cube || 0;
     const keepLife = { prayer: null, autoEat: s.life.autoEat };
     s.gold = 0;
     s.stage = 1;
@@ -124,7 +123,9 @@ export class Game {
     // 장비칸: 강화는 초기화, 잠재능력 · 추가 잠재능력은 유지
     for (const d of Object.values(s.slots || {})) if (d) d.enh = 0;
     s.life = { ...newLifeState(), ...keepLife };
-    s.life.bank.cube = cube + Math.floor(this.prestigeBonus('scube'));
+    // 큐브 · 펫(강화 · 잠재능력 포함)도 초기화, 큐브는 프레스티지 '큐브 상자'만큼 받고 시작
+    s.life.bank.cube = Math.floor(this.prestigeBonus('scube'));
+    s.world.pets = { owned: [], active: null, data: {} };
     s.stats.rebirths = P.count;
     this.rt.monster = null;
     this.rt.streak = 0;
