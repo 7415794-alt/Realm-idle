@@ -38,7 +38,7 @@ export function levelFromXp(xp) {
 // 레벨마다 조금씩 올라 999레벨에서 최대 (값: 999레벨 수치)
 export const LIFE_SPECIAL = {
   wood: ['boss', 1.0], mine: ['pen', 0.15], fish: ['drop', 1.0], cook: ['spd', 0.25], smith: ['dmg', 0.5],
-  craft: ['cdmg', 1.0], alch: ['ls', 0.1], arcane: ['dmg', 0.5], divine: ['gold', 0.5], thief: ['crit', 0.15],
+  craft: ['cdmg', 1.0], alch: ['ls', 0.1], arcane: ['dmg', 0.5], divine: ['gold', 2.0], thief: ['crit', 0.15],
 };
 export const lifeSpecialOf = (id, lv) => (LIFE_SPECIAL[id] ? LIFE_SPECIAL[id][1] * (lv / LIFE_MAX_LV) : 0);
 export function lifeSpecial(s, key) {

@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.18.0';
+export const VERSION = '3.19.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -47,7 +47,7 @@ export const STYLES = {
 };
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
-export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.7, spd: 1, dmg: 5, boss: 8, cdmg: 8, gold: 3, drop: 10 }; // 골드 보너스 최대 +300% (예전 +2000%)
+export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.7, spd: 1, dmg: 5, boss: 8, cdmg: 8, gold: 20, drop: 10 }; // 골드 보너스 최대 +2000%
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -396,11 +396,11 @@ export const POT_LINES = [
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
   { key: 'dmg', b: 0.06, w: 8, sp: true },
-  { key: 'boss', b: 0.24, w: 8, sp: true },
+  { key: 'boss', b: 0.32, w: 8, sp: true },
   { key: 'pen', b: 0.04, w: 8, sp: true },
-  { key: 'cdmg', b: 0.24, w: 8, sp: true },
+  { key: 'cdmg', b: 0.32, w: 8, sp: true },
   { key: 'spd', b: 0.035, w: 8, sp: true },
-  { key: 'gold', b: 0.1, w: 8, sp: true },
+  { key: 'gold', b: 0.4, w: 8, sp: true },
   { key: 'drop', b: 0.2, w: 8, sp: true },
 ];
 export const POT_SP_MIN = 3; // 특수 옵션이 나오기 시작하는 등급 (영웅)
