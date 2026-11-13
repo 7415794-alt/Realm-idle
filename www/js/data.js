@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.19.0';
+export const VERSION = '3.20.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -375,7 +375,10 @@ export function itemScore(it, style = 'melee') {
 // ---- 잠재능력 (큐브) ----
 // 장비 등급과 같은 21단계(일반 → 에테르). 🎲 큐브로 3줄을 다시 굴림: 등급이 오를 수 있고(올라갈수록 확률↓),
 // 같은 등급에서 '천장' 횟수만큼 돌리면 다음 등급 확정. 첫 줄은 지금 등급, 둘째 · 셋째 줄은 20% 확률로 지금 등급 · 아니면 한 단계 아래
-export const POT_MULT = (t) => 1 + 0.45 * t; // 등급별 수치 배율 (일반 x1 → 에테르 x10)
+// 등급별 수치 배율: 한 등급 오를 때마다 x1.2 (일반 x1 → 영웅 x1.7 → 신화 x2.5 → 일식 x5.2 → 성광 x12.8 → 에테르 x38)
+export const POT_MULT = (t) => Math.pow(1.2, t);
+// 예전 배율 (저장 데이터 변환용)
+export const POT_MULT_OLD = (t) => 1 + 0.45 * t;
 export const POT_TIERS = RARITIES.map((r, t) => {
   const last = t === RARITIES.length - 1;
   const up = last ? 0 : 0.1 * 0.76 ** t;
@@ -383,16 +386,17 @@ export const POT_TIERS = RARITIES.map((r, t) => {
 });
 // key: 효과 종류(기도 · 펫과 같은 이름), b: 일반 등급 수치(등급 배율을 곱함), w: 나올 가중치
 export const POT_LINES = [
-  { key: 'melee', b: 0.015, w: 10 },
-  { key: 'rng', b: 0.015, w: 10 },
-  { key: 'mag', b: 0.015, w: 10 },
-  { key: 'atk', b: 0.01, w: 6 },
-  { key: 'def', b: 0.02, w: 8 },
-  { key: 'hp', b: 0.02, w: 8 },
-  { key: 'crit', b: 0.008, w: 10 },
-  { key: 'ls', b: 0.003, w: 8 },
-  { key: 'dr', b: 0.005, w: 4 },
-  { key: 'regen', b: 0.002, w: 6 },
+  // 수치는 1% 단위로 올림되므로 가장 낮은 등급도 1% 이상 (등급이 오를 때마다 숫자가 눈에 띄게 커짐)
+  { key: 'melee', b: 0.02, w: 10 },
+  { key: 'rng', b: 0.02, w: 10 },
+  { key: 'mag', b: 0.02, w: 10 },
+  { key: 'atk', b: 0.015, w: 6 },
+  { key: 'def', b: 0.025, w: 8 },
+  { key: 'hp', b: 0.025, w: 8 },
+  { key: 'crit', b: 0.01, w: 10 },
+  { key: 'ls', b: 0.01, w: 8 },
+  { key: 'dr', b: 0.01, w: 4 },
+  { key: 'regen', b: 0.01, w: 6 },
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
   { key: 'dmg', b: 0.06, w: 8, sp: true },

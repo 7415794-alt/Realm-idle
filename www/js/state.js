@@ -1,11 +1,11 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
 import { newWorldState } from './world.js';
-import { WEAPONS, potValue } from './data.js';
+import { WEAPONS, potValue, POT_MULT_OLD } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 export function newState() {
   return {
@@ -55,7 +55,28 @@ function migrate(obj) {
   if (obj.v < 8) obj = { ...obj, v: 8, gold: 0 }; // v3.16: 너무 많이 쌓인 골드 초기화 (한 번만)
   if (obj.v < 9) obj = { ...obj, v: 9, gold: 0 }; // v3.17: 골드 공식 변경(지수 → 완만한 곡선)으로 다시 초기화
   if (obj.v < 10) obj = { ...obj, v: 10, gold: Math.ceil((obj.gold || 0) - 1e-9) }; // v3.18: 골드 정수(올림)
+  if (obj.v < 11) obj = migrateV10(obj);
   return obj;
+}
+// v10 → v11: 잠재능력 등급 배율 변경(1 + 0.45t → 1.2^t) · 기본 수치 변경 → 저장된 줄 수치를 새 기준으로 다시 계산
+// 줄마다 지금 등급 / 한 단계 아래 중 예전 수치에 더 가까운 쪽을 그 줄의 등급으로 봄
+const OLD_POT_B = { melee: 0.015, rng: 0.015, mag: 0.015, atk: 0.01, def: 0.02, hp: 0.02, crit: 0.008, ls: 0.003, dr: 0.005, regen: 0.002, dmg: 0.06, boss: 0.32, pen: 0.04, cdmg: 0.32, spd: 0.035, gold: 0.4, drop: 0.2 };
+function repot(p) {
+  if (!isObj(p) || !Array.isArray(p.lines)) return;
+  const t = p.t || 0;
+  p.lines = p.lines.map(([k, v]) => {
+    const b = OLD_POT_B[k];
+    if (!b || !(v > 0)) return [k, potValue(k, t)];
+    const cand = [t, Math.max(0, t - 1)];
+    const tt = cand.reduce((best, c) => (Math.abs(Math.log(v / (b * POT_MULT_OLD(c)))) < Math.abs(Math.log(v / (b * POT_MULT_OLD(best)))) ? c : best), t);
+    return [k, potValue(k, tt)];
+  });
+}
+function migrateV10(obj) {
+  const o = { ...obj, v: 11 };
+  for (const d of Object.values(o.slots || {})) if (isObj(d)) { repot(d.pot); repot(d.potNew); }
+  for (const d of Object.values(o.world?.pets?.data || {})) if (isObj(d)) { repot(d.pot); repot(d.potNew); }
+  return o;
 }
 // v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
 // v6 → v7: 골드 1/100, 장비 레벨을 단계(재질)로 맞춤, 칸 강화 최대 99 · 하위 장비 자동 판매
