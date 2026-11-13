@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.9.1';
+export const VERSION = '3.9.2';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -302,7 +302,7 @@ export const SPECIALS = { crit: 0.025, ls: 0.012, dr: 0.02, regen: 0.004 };
 // 장비칸 강화: 최대 99, 비용은 고정 (평생 유지되므로 비쌈)
 export const ENHANCE_MAX = 99;
 export const ENHANCE_COST = 5000;
-export const ENHANCE_STEP = 2500; // 레벨마다 일정하게 늘어나는 비용
+export const ENHANCE_GROW = 1.06; // 레벨이 오를수록 증가폭도 커짐 (매 단계 6%씩)
 
 export function baseStats(it) {
   return it.slot === 'weapon' ? WEAPONS[it.kind || 'sword'].stats : SLOTS[it.slot].stats;
@@ -467,7 +467,7 @@ export const itemNoun = (it) => {
 export const itemName = (it) => `${materialOf(it.lvl)} ${itemNoun(it)}` + (it.enh > 0 ? ` +${it.enh}` : '');
 export const itemSellPrice = (it) => goldPerKill(it.lvl) * 2 * RARITIES[it.r].mult * (1 + (it.enh || 0) * 0.5);
 // 장비칸 강화는 평생 유지되므로 비쌈 (예전보다 조금 비쌈)
-export const enhanceCost = (o) => ENHANCE_COST + ENHANCE_STEP * ((o && o.enh) || 0);
+export const enhanceCost = (o) => Math.round(ENHANCE_COST * ENHANCE_GROW ** ((o && o.enh) || 0));
 
 export const statVal = (k, v) => (PCT_STATS.includes(k) ? (v * 100).toFixed(k === 'regen' ? 2 : 1) + '%' : fmt(v));
 export function statText(st) {
