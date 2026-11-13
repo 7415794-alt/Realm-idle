@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.21.0';
+export const VERSION = '3.22.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -16,9 +16,10 @@ export const OFFLINE_CAP = 6 * 3600; // 오프라인 최대 시간(초)
 // 성장 곡선: 몬스터가 장비보다 조금 더 빨리 강해짐 → 높은 등급 · 강화 · 제작이 필요
 // 숫자가 너무 커지지 않도록 완만하게 (레벨 80 일반 몬스터 체력 약 1천)
 export const power = (lvl) => Math.pow(1.02, Math.max(1, lvl) - 1);
-// 레벨마다 x1.036 (예전 1.0427은 장비 성장(재질 10레벨마다 x1.35 ≈ 레벨마다 x1.03)보다 너무 빨라 고레벨에서 한 방에 쓰러짐)
-export const MON_GROWTH = 1.036;
-export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
+// 몬스터 성장률 (레벨마다): 체력은 빠르게(잠재능력 · 특수 옵션으로 커지는 공격력을 따라감),
+// 힘(주는 피해)은 느리게(장비 성장과 비슷 → 한 방에 쓰러지지 않게), 방어는 그 중간
+export const MON_GROWTH = { hp: 1.05, def: 1.0427, str: 1.037 };
+export const monPower = (stage, k = 'hp') => Math.pow(MON_GROWTH[k], Math.max(1, stage) - 1);
 // 골드는 예전 계산식의 1/100 (번 골드 · 쓰는 골드 모두)
 // 처치당 골드 = 0.02 x 레벨^1.5 (지수 증가 X → 레벨 300에서도 약 104)
 // 칸 강화 · 도구 같은 고정 비용이 후반에도 의미 있게 유지됨
@@ -26,9 +27,8 @@ export const goldPerKill = (s) => Math.ceil(0.02 * Math.pow(Math.max(1, s), 1.5)
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
-  const p = monPower(stage);
   const ease = Math.min(1, 0.4 + 0.04 * (stage - 1)); // 초반(Lv 16 미만) 완화
-  const m = { hp: 40 * p * ease, def: 5 * p, str: 21 * p * ease * ease, interval: 2 };
+  const m = { hp: 40 * monPower(stage, 'hp') * ease, def: 5 * monPower(stage, 'def'), str: 21 * monPower(stage, 'str') * ease * ease, interval: 2 };
   if (kind === 'zoneBoss') { m.hp *= 5; m.def *= 1.25; m.str *= 1.3; m.interval = 1.8; }
   m.hp = Math.ceil(m.hp); m.def = Math.ceil(m.def); m.str = Math.ceil(m.str);
   return m;
@@ -49,7 +49,7 @@ export const STYLES = {
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
 // 특수 옵션 최대치는 잠재능력 최고 등급(x38)에 맞춰 상향: 모든 수급처를 모으면 최대치의 1.4배 이상
-export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.9, spd: 5, dmg: 20, boss: 25, cdmg: 25, gold: 70, drop: 35 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.9, spd: 3.5, dmg: 15, boss: 13, cdmg: 13, gold: 70, drop: 35 };
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -401,11 +401,11 @@ export const POT_LINES = [
   { key: 'regen', b: 0.01, w: 6 },
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
-  { key: 'dmg', b: 0.06, w: 8, sp: true },
-  { key: 'boss', b: 0.32, w: 8, sp: true },
-  { key: 'pen', b: 0.04, w: 8, sp: true },
-  { key: 'cdmg', b: 0.32, w: 8, sp: true },
-  { key: 'spd', b: 0.035, w: 8, sp: true },
+  { key: 'dmg', b: 0.035, w: 8, sp: true },
+  { key: 'boss', b: 0.15, w: 8, sp: true },
+  { key: 'pen', b: 0.03, w: 8, sp: true },
+  { key: 'cdmg', b: 0.15, w: 8, sp: true },
+  { key: 'spd', b: 0.02, w: 8, sp: true },
   { key: 'gold', b: 0.4, w: 8, sp: true },
   { key: 'drop', b: 0.2, w: 8, sp: true },
 ];

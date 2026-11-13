@@ -1,11 +1,11 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
 import { newWorldState } from './world.js';
-import { WEAPONS, potValue, POT_MULT_OLD } from './data.js';
+import { WEAPONS, potValue, POT_MULT, POT_MULT_OLD } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 export function newState() {
   return {
@@ -56,6 +56,7 @@ function migrate(obj) {
   if (obj.v < 9) obj = { ...obj, v: 9, gold: 0 }; // v3.17: 골드 공식 변경(지수 → 완만한 곡선)으로 다시 초기화
   if (obj.v < 10) obj = { ...obj, v: 10, gold: Math.ceil((obj.gold || 0) - 1e-9) }; // v3.18: 골드 정수(올림)
   if (obj.v < 11) obj = migrateV10(obj);
+  if (obj.v < 12) obj = migrateV11(obj);
   return obj;
 }
 // v10 → v11: 잠재능력 등급 배율 변경(1 + 0.45t → 1.2^t) · 기본 수치 변경 → 저장된 줄 수치를 새 기준으로 다시 계산
@@ -71,6 +72,25 @@ function repot(p) {
     const tt = cand.reduce((best, c) => (Math.abs(Math.log(v / (b * POT_MULT_OLD(c)))) < Math.abs(Math.log(v / (b * POT_MULT_OLD(best)))) ? c : best), t);
     return [k, potValue(k, tt)];
   });
+}
+// v11 → v12: 전투 특수 옵션(모든 피해 · 보스 · 방어 무시 · 치명타 피해 · 공격 속도) 수치 하향 → 저장된 줄을 새 수치로
+const V11_SP_B = { dmg: 0.06, boss: 0.32, pen: 0.04, cdmg: 0.32, spd: 0.035 };
+function repotSp(p) {
+  if (!isObj(p) || !Array.isArray(p.lines)) return;
+  const t = p.t || 0;
+  p.lines = p.lines.map(([k, v]) => {
+    const b = V11_SP_B[k];
+    if (!b || !(v > 0)) return [k, v];
+    const cand = [t, Math.max(0, t - 1)];
+    const tt = cand.reduce((best, c) => (Math.abs(Math.log(v / (b * POT_MULT(c)))) < Math.abs(Math.log(v / (b * POT_MULT(best)))) ? c : best), t);
+    return [k, potValue(k, tt)];
+  });
+}
+function migrateV11(obj) {
+  const o = { ...obj, v: 12 };
+  for (const d of Object.values(o.slots || {})) if (isObj(d)) { repotSp(d.pot); repotSp(d.potNew); }
+  for (const d of Object.values(o.world?.pets?.data || {})) if (isObj(d)) { repotSp(d.pot); repotSp(d.potNew); }
+  return o;
 }
 function migrateV10(obj) {
   const o = { ...obj, v: 11 };
