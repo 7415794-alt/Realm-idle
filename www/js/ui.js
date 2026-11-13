@@ -348,10 +348,13 @@ export class UI {
     const draw = () => {
       const a = g.analyze();
       const sty = STYLES[g.style()];
-      const best = [...a.styles].sort((x, y) => y.power - x.power)[0];
+      const best = [...a.styles].sort((x, y) => y.kpm - x.kpm)[0];
+      const pmode = this.anaMode === 'power';
+      const list = pmode ? a.prows : a.rows;
+      const pc = (v) => (v > 0.00005 ? '+' + (v * 100).toFixed(2) + '%' : '-');
       const n = a.now;
       const life = n.killsPerLife === Infinity ? '체력이 줄지 않음 (안정)' : `한 번 쓰러질 때까지 약 ${exact(n.killsPerLife)}마리`;
-      const top = a.rows.filter((r) => r.gain > 0.00005).slice(0, 3);
+      const top = list.filter((r) => r.gain > 0.00005).slice(0, 3);
       const tip = a.danger
         ? '⚠️ 지금 몬스터에게 자주 쓰러집니다. 생존 스탯(아래 순위)부터 올리거나 더 약한 몬스터를 고르세요.'
         : '✅ 생존은 안정적입니다. 공격 스탯을 올릴수록 사냥이 빨라집니다.';
@@ -359,14 +362,17 @@ export class UI {
       card.innerHTML = `<summary>📊 스탯 분석 · 추천 (${sty.icon} ${sty.name} 기준, ${a.m.name || '지금 몬스터'})</summary>
         <div class="muted lnote">처치 시간 ${n.ttk.toFixed(1)}초 · 초당 받는 피해 ${exact(n.inc)} · 초당 회복 ${exact(n.heal)} · ${life} · 분당 처치 ${n.kpm.toFixed(1)}마리</div>
         <div class="anatip">${tip}</div>
-        <div class="anahead">추천 순위 (각 스탯 1%씩 올렸을 때 전투력 증가 · 전투력과 같은 실제 전투 계산 · 최대치에 도달한 스탯은 제외)</div>
-        ${a.rows.map((r, i) => `<div class="lrow${i < 3 && r.gain > 0.00005 ? ' best' : ''}${r.sp ? ' sprow' : ''}"><span>${i + 1}. ${r.label}</span><b>${r.gain > 0.00005 ? '+' + (r.gain * 100).toFixed(2) + '%' : '효과 거의 없음'}</b></div>`).join('')}
+        <div class="anamode"><button class="btn small${pmode ? '' : ' primary'}" data-m="real">🗡️ 실제 전투 기준</button><button class="btn small${pmode ? ' primary' : ''}" data-m="power">⚔ 전투력 기준</button></div>
+        <div class="anahead">${pmode ? '추천 순위 · 전투력(순수한 강함) 기준: 각 스탯 1%씩 올렸을 때 전투력 증가' : `추천 순위 · 실제 전투 기준: 각 스탯 1%씩 올렸을 때 ${a.m.name || '지금 몬스터'} 분당 처치 증가`} · 최대치에 도달한 스탯은 제외</div>
+        <div class="lrow lhead"><span>스탯</span><b>${pmode ? '<u>전투력</u> · 실전' : '<u>실전</u> · 전투력'}</b></div>
+        ${list.map((r, i) => `<div class="lrow${i < 3 && r.gain > 0.00005 ? ' best' : ''}${r.sp ? ' sprow' : ''}"><span>${i + 1}. ${r.label}</span><b>${r.gain > 0.00005 ? '+' + (r.gain * 100).toFixed(2) + '%' : '효과 거의 없음'} <small class="muted">· ${pc(pmode ? r.real : r.power)}</small></b></div>`).join('')}
         <div class="anahead">지금 장비로 방식별 비교</div>
-        ${a.styles.map((x) => `<div class="lrow${x.id === best.id ? ' best' : ''}"><span>${STYLES[x.id].icon} ${STYLES[x.id].name}${x.id === g.style() ? ' (사용 중)' : ''}</span><b>⚔ ${fmt(x.power)} · DPS ${exact(x.dps)}</b></div>`).join('')}
+        ${a.styles.map((x) => `<div class="lrow${x.id === best.id ? ' best' : ''}"><span>${STYLES[x.id].icon} ${STYLES[x.id].name}${x.id === g.style() ? ' (사용 중)' : ''}</span><b>⚔ ${fmt(x.power)} · DPS ${exact(x.dps)} · 분당 ${x.kpm.toFixed(1)}마리</b></div>`).join('')}
         <div class="muted lnote">${best.id !== g.style() ? `💡 지금 장비로는 ${STYLES[best.id].icon} ${STYLES[best.id].name}이(가) 더 강합니다. 아래에서 바꿀 수 있습니다.` : '💡 지금 고른 방식이 가장 강합니다.'}
         ${top.length ? ` 가장 효율 좋은 스탯: ${top.map((r) => r.label).join(', ')}.` : ''}
         근접은 근접 수치, 원거리는 원거리 수치, 마법은 마법 수치(몬스터 방어를 일부 무시해 방어가 높은 몬스터에 유리)만 피해에 쓰입니다. 치명타는 공격 수치가 높을수록, 방어 · 체력 · 흡혈은 자주 쓰러질수록 효율이 올라갑니다.</div>`;
       card.open = open;
+      card.querySelectorAll('.anamode button').forEach((b) => b.addEventListener('click', (ev) => { ev.preventDefault(); this.anaMode = b.dataset.m; draw(); }));
     };
     draw();
     this.updaters.push(() => { const now = performance.now(); if (now - last > 3000) { last = now; draw(); } });

@@ -143,29 +143,16 @@ export class Game {
   totalDps() { return this.dpsVs(this.rt.monster?.def ?? monsterStats(this.s.stage).def); }
   // 전투력: 장착 장비 점수 합
   // 전투력: 최종 능력치로 계산 (공격 x 치명타 x 속도 x 특수 옵션 + 생존, 흡혈 · 감소 · 회복 · 골드 · 드롭률 보정)
-  // 전투력 = 실제 전투 계산 (추천 순위와 같은 계산)
-  //  기준: 지금 사냥 중인 지역의 가장 강한 일반 몬스터(70%)와 지역 보스(30%)
-  //  공격: 그 몬스터에게 넣는 실제 DPS (방어 · 방어 무시 · 치명타 · 공속 · 보스 피해 반영)
-  //  생존: 쓰러지기 전까지 버티는 피해량 = 체력 ÷ (받는 피해 - 회복 · 흡혈), 방어 · 피해 감소 반영
-  //        회복이 받는 피해를 따라잡을수록 크게 늘어남 (최대 20배)
-  //  전투력 = √(DPS x 버티는 피해량) — 공격과 생존이 1%씩 같은 무게
-  powerRefs() {
-    const z = this.s.target.z;
-    if (this._pref?.z !== z) {
-      const mk = (mi) => { const info = monsterInfo(z, mi); return { ...info, ...monsterStats(info.lvl, info.boss ? 'zoneBoss' : 'normal') }; };
-      this._pref = { z, list: [[mk(4), 0.7], [mk(BOSS_MI), 0.3]] };
-    }
-    return this._pref.list;
-  }
+  // 전투력 = 순수한 강함 (몬스터와 상관없이 능력치만으로 계산)
+  //  공격력: 고른 방식 공격 x 모든 피해 x 치명타 기대값 x 공격 속도 x 방어 무시 · 보스 피해 보정
+  //  생존력: (체력 + 방어 x 5) ÷ (1 - 피해 감소) x 회복 · 흡혈 보정
+  //  전투력 = √(공격력 x 생존력) — 공격과 생존이 1%씩 같은 무게
   combatPower(st, style = this.style()) {
-    let P = 0;
-    for (const [m, w] of this.powerRefs()) {
-      const c = this.combatCalc(st, style, m);
-      const raw = incomingHit(m.str, 0) / m.interval; // 방어 · 감소 전 원래 피해
-      const t = st.hp / Math.max(c.net, c.inc * 0.05, 1e-9); // 버티는 시간
-      P += w * Math.sqrt(c.dps * t * raw);
-    }
-    return P / 10;
+    const sty = STYLES[style];
+    const atk = st[sty.stat] * (sty.stat === 'mag' ? 0.8 : 0.85);
+    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.25);
+    const ehp = ((st.hp + st.def * 5) / Math.max(0.05, 1 - st.dr)) * (1 + st.regen * 5) * (1 + st.ls * 3);
+    return Math.sqrt(Math.max(0, off) * ehp) / 10;
   }
   powerOf(st = this.stats()) { return this.combatPower(st); }
   powerScore() { return this.powerOf(); }
@@ -453,17 +440,19 @@ export class Game {
       { k: 'cdmg', sp: true, label: '★ 치명타 피해 +1%p', full: base.cdmg - CRIT_MULT >= C.cdmg, f: add('cdmg', C.cdmg, CRIT_MULT) },
       { k: 'spd', sp: true, label: '★ 공격 속도 +1%p', full: base.spd >= C.spd, f: add('spd', C.spd) },
     ].filter((x) => !x.full);
-    // 순위 = 전투력과 같은 실제 전투 계산으로 1% 올렸을 때 전투력 증가율
+    // 두 가지 순위: real = 지금 몬스터와의 실제 전투(분당 처치 증가) · power = 전투력(순수한 강함) 증가
     const p0 = this.combatPower(base, style);
-    const rows = tests.map((x) => {
+    const all = tests.map((x) => {
       const st = { ...base };
       x.f(st);
       const r = this.combatCalc(st, style, m);
-      return { ...x, gain: this.combatPower(st, style) / Math.max(1e-9, p0) - 1, dpsGain: r.dps / now.dps - 1, incCut: 1 - r.net / (now.net || 1) };
-    }).sort((a, b) => b.gain - a.gain);
+      return { ...x, real: r.kpm / Math.max(1e-9, now.kpm) - 1, power: this.combatPower(st, style) / Math.max(1e-9, p0) - 1 };
+    });
+    const rows = [...all].sort((a, b) => b.real - a.real).map((x) => ({ ...x, gain: x.real }));
+    const prows = [...all].sort((a, b) => b.power - a.power).map((x) => ({ ...x, gain: x.power }));
     // 방식별 지금 장비 (전투력 · DPS)
     const styles = STYLE_IDS.map((sid) => ({ id: sid, ...this.withStyle(sid, () => ({ ...this.combatCalc(this.stats(), sid, m), power: this.combatPower(this.stats(), sid) })) }));
-    return { now, rows, styles, m, danger: now.killsPerLife < 30 };
+    return { now, rows, prows, styles, m, danger: now.killsPerLife < 30 };
   }
 
   // ---------- 큐브 (잠재능력) ----------

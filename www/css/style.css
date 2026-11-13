@@ -647,3 +647,8 @@ body.tab-gear .battle { height: 24vh; min-height: 150px; }
 /* 장비 ★ 특수 옵션 줄 */
 .ispline { font-size: 11px; color: #ffd36b; margin-top: 2px; }
 .ispline.off { color: #6c6880; }
+
+/* 추천 순위 기준 전환 */
+.anamode { display: flex; gap: 6px; margin: 6px 0 2px; }
+.anamode .btn { flex: 1; }
+.lrow.lhead { opacity: .7; font-size: 11px; }
