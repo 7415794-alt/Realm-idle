@@ -1,11 +1,11 @@
 // 저장 데이터 구조 / 저장 · 불러오기
 import { newLifeState } from './life.js';
 import { newWorldState } from './world.js';
-import { WEAPONS, potValue, POT_MULT, POT_MULT_OLD } from './data.js';
+import { WEAPONS, potValue, POT_MULT, POT_MULT_OLD, POT_SPECIAL, POT_LINES } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 export function newState() {
   return {
@@ -25,7 +25,9 @@ export function newState() {
     },
     inv: [],
     nextId: 3,
-    settings: { autoEquip: true, autoSell: 0, sellLower: true, autoMuseum: false, speed: 1, autoProgress: true, autoCombine: false, style: 'melee' },
+    settings: { autoEquip: true, autoSell: 0, sellLower: true, autoMuseum: false, speed: 1, autoProgress: true, autoCombine: false, style: 'melee', showDmg: true },
+    mastery: {},      // 생활 스킬 수련 (환생해도 유지)
+    prestige: { pts: 0, total: 0, count: 0, best: 0, bestZone: 0, up: {} }, // 환생 · 프레스티지
     life: newLifeState(),
     world: newWorldState(),
     stats: {
@@ -57,6 +59,7 @@ function migrate(obj) {
   if (obj.v < 10) obj = { ...obj, v: 10, gold: Math.ceil((obj.gold || 0) - 1e-9) }; // v3.18: 골드 정수(올림)
   if (obj.v < 11) obj = migrateV10(obj);
   if (obj.v < 12) obj = migrateV11(obj);
+  if (obj.v < 13) obj = migrateV12(obj);
   return obj;
 }
 // v10 → v11: 잠재능력 등급 배율 변경(1 + 0.45t → 1.2^t) · 기본 수치 변경 → 저장된 줄 수치를 새 기준으로 다시 계산
@@ -85,6 +88,28 @@ function repotSp(p) {
     const tt = cand.reduce((best, c) => (Math.abs(Math.log(v / (b * POT_MULT(c)))) < Math.abs(Math.log(v / (b * POT_MULT(best)))) ? c : best), t);
     return [k, potValue(k, tt)];
   });
+}
+// v12 → v13: 부위마다 서로 다른 특수 옵션 (13종) → 부위에 맞지 않는 특수 옵션 줄은 그 부위의 새 특수 옵션으로,
+// 특수 옵션 수치는 예전 기본값 대비 같은 비율(등급 위치)로 새 기본값에 맞춤
+const V12_SP_B = { dmg: 0.035, boss: 0.15, pen: 0.03, cdmg: 0.15, spd: 0.02, gold: 0.4, drop: 0.2 };
+const newB = (k) => POT_LINES.find((l) => l.key === k)?.b || 0;
+function respec(p, slot) {
+  if (!isObj(p) || !Array.isArray(p.lines)) return;
+  const sp = POT_SPECIAL[slot];
+  p.lines = p.lines.map(([k, v]) => {
+    const ob = V12_SP_B[k];
+    if (!ob || !sp) return [k, v];
+    const nk = sp;
+    return [nk, Math.round((v / ob) * newB(nk) * 1e4) / 1e4];
+  });
+}
+function migrateV12(obj) {
+  const o = { ...obj, v: 13 };
+  if (!isObj(o.prestige) || !isObj(o.prestige.up)) o.prestige = { pts: 0, total: 0, count: 0, best: 0, bestZone: 0, up: {} };
+  if (!isObj(o.mastery)) o.mastery = {};
+  for (const [sl, d] of Object.entries(o.slots || {})) if (isObj(d)) { respec(d.pot, sl); respec(d.potNew, sl); }
+  for (const d of Object.values(o.world?.pets?.data || {})) if (isObj(d)) { respec(d.pot, 'pet'); respec(d.potNew, 'pet'); }
+  return o;
 }
 function migrateV11(obj) {
   const o = { ...obj, v: 12 };

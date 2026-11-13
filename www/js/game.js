@@ -3,13 +3,14 @@
 // 전투 방식(근접 · 원거리 · 마법)은 장착한 무기로 결정
 import {
   BOSS_TIME, RESPAWN, HERO_REVIVE, INV_MAX, OFFLINE_CAP, BOSS_MI, AUTO_STREAK, BOSS_RETRY, BOSS_GOLD,
+  PRESTIGE, prestigeCost, prestigeGain, REBIRTH_MIN,
   goldPerKill, monsterStats, monsterInfo, monLevel, zoneTitle, maxHitFor, incomingHit, ZONES, LOOT_POOLS,
   HERO_BASE, STAT_CAPS, tierLvl, itemTier, CRIT_MULT, VIP, BASE_MIN_HIT, RARITIES, STYLES, rollWeights, rollPot, liftLine, potSum, POT_TIERS, POT_LOCK_COST, PET_POT_LINES, PET_ENH_MAX, PET_ENH, petEnhCost, cubeGoldCost, SLOT_IDS, DROP_SLOTS, AFF_SLOTS, WEAPONS, WEAPON_IDS,
   STYLE_IDS, SPECIALS, ceilN, ceilP, ENHANCE_MAX, itemStats, itemScore, itemStyle, itemName, itemSellPrice, enhanceCost, rollRarity,
   lootTable, isRing,
 } from './data.js';
 import { fmt } from './format.js';
-import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS, lifeSpecial } from './life.js';
+import { lifeUpdate, autoEat, buffMult, prayerBonus, newLifeLog, bankAdd, MATS, lifeSpecial, lifeHooks, newLifeState } from './life.js';
 import { worldBonus, worldTick, questEvent, rollKillPets } from './world.js';
 
 // 쿠폰: 몇 번이든 사용 가능. gold는 '처치 골드 x 배수'(최고 레벨 기준)
@@ -25,7 +26,7 @@ export const COUPONS = {
   물약상자: { name: '물약 상자', mats: { pot_atk: 30, pot_def: 30, pot_hp: 30, pot_speed: 30, pot_gold: 30, pot_drop: 30, pot_all: 20 } },
   POTION: { name: '물약 상자', mats: { pot_atk: 30, pot_def: 30, pot_hp: 30, pot_speed: 30, pot_gold: 30, pot_drop: 30, pot_all: 20 } },
 };
-export const SPEEDS = [1, 2, 4, 8, 16];
+export const SPEEDS = [1, 2, 4, 8, 16, 32];
 const REGEN = 0.02;                // 기본 초당 체력 회복 (최대 체력 대비)
 
 export class Game {
@@ -51,13 +52,90 @@ export class Game {
       retry: 0,    // 자동 진행: 후퇴 후 다시 나아가기까지 남은 처치 수
       potCache: null,
     };
+    // 생활 스킬에 잠재능력(생활 경험치) · 프레스티지 반영
+    lifeHooks.xp = () => Math.min(STAT_CAPS.xp, this.potBonus('xp')) + this.prestigeBonus('lxp');
+    lifeHooks.speed = () => this.prestigeBonus('lspd');
+    lifeHooks.masteryDisc = () => this.prestigeBonus('mdisc');
     worldTick(this);
     this.rt.heroHp = this.heroMaxHp();
     this.spawn();
   }
 
   // 기도 + 펫 + 날씨 효과 합
-  bonus(key) { return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key) + this.petEnhBonus(key) + lifeSpecial(this.s, key) + (STYLES[this.style()].perk?.[key] || 0); }
+  bonus(key) {
+    const stat = key === 'atk' || key === 'def' || key === 'hp' ? this.potBonus('stat') : 0;
+    return prayerBonus(this.s, key) + worldBonus(this.s, key) + this.potBonus(key) + stat + this.petEnhBonus(key) + lifeSpecial(this.s, key) + (STYLES[this.style()].perk?.[key] || 0) + this.prestigeBonus(key);
+  }
+  // ---------- 프레스티지 (환생 강화) ----------
+  prestigeLv(id) { return this.s.prestige?.up?.[id] || 0; }
+  prestigeBonus(key) {
+    const up = this.s.prestige?.up;
+    if (!up) return 0;
+    let v = 0;
+    for (const p of PRESTIGE) if (p.key === key && up[p.id]) v += p.v * Math.min(p.max, up[p.id]);
+    return v;
+  }
+  buyPrestige(id, max = false) {
+    const P = (this.s.prestige ||= { pts: 0, total: 0, count: 0, up: {} });
+    P.up ||= {};
+    const p = PRESTIGE.find((x) => x.id === id);
+    if (!p) return 0;
+    let n = 0;
+    while ((P.up[id] || 0) < p.max) {
+      const c = prestigeCost(p, P.up[id] || 0);
+      if (P.pts < c) break;
+      P.pts -= c;
+      P.up[id] = (P.up[id] || 0) + 1;
+      n++;
+      if (!max) break;
+    }
+    if (n) this.dirtyStats();
+    return n;
+  }
+  enhCost(o) { return Math.ceil(enhanceCost(o) * (1 - Math.min(0.9, this.prestigeBonus('edisc')))); }
+  rebirthGain() { return prestigeGain(this.s.maxStage || 0, 1 + this.prestigeBonus('pgain')); }
+  canRebirth() { return (this.s.maxStage || 0) >= REBIRTH_MIN; }
+  // 환생: 대부분 초기화 · 박물관 · 수련 · 잠재능력 · 큐브 · 펫 · 퀘스트 · 설정 · 프레스티지는 유지
+  rebirth() {
+    if (!this.canRebirth()) return null;
+    const s = this.s;
+    const gain = this.rebirthGain();
+    const P = (s.prestige ||= { pts: 0, total: 0, count: 0, up: {} });
+    P.pts += gain;
+    P.total += gain;
+    P.count = (P.count || 0) + 1;
+    P.best = Math.max(P.best || 0, s.maxStage || 0);
+    P.bestZone = Math.max(P.bestZone || 0, s.maxZone || 0);
+    const cube = s.life.bank.cube || 0;
+    const keepLife = { prayer: null, autoEat: s.life.autoEat };
+    s.gold = 0;
+    s.stage = 1;
+    s.maxStage = 1;
+    s.maxZone = Math.min(Math.floor(this.prestigeBonus('szone')), Math.floor(P.bestZone / 2));
+    s.target = { z: 0, mi: 0 };
+    s.equip = {
+      weapon: { id: 1, slot: 'weapon', kind: 'sword', r: 0, lvl: 1, enh: 0 },
+      shield: null, helm: null,
+      body: { id: 2, slot: 'body', r: 0, lvl: 1, enh: 0 },
+      legs: null, gloves: null, boots: null, amulet: null, ring1: null, ring2: null, cape: null, off: null,
+    };
+    s.inv = [];
+    s.nextId = 3;
+    // 장비칸: 강화는 초기화, 잠재능력 · 추가 잠재능력은 유지
+    for (const d of Object.values(s.slots || {})) if (d) d.enh = 0;
+    s.life = { ...newLifeState(), ...keepLife };
+    s.life.bank.cube = cube + Math.floor(this.prestigeBonus('scube'));
+    s.stats.rebirths = P.count;
+    this.rt.monster = null;
+    this.rt.streak = 0;
+    this.rt.retry = 0;
+    this.rt.fx = [];
+    this.rt.invDirty = true;
+    this.dirtyStats();
+    this.rt.heroHp = this.heroMaxHp();
+    this.spawn();
+    return { gain, count: P.count };
+  }
 
   // 게임 배속 (저장값이 잘못돼도 x1)
   speed() { return SPEEDS.includes(this.s.settings.speed) ? this.s.settings.speed : 1; }
@@ -120,6 +198,11 @@ export class Game {
       spd: Math.min(STAT_CAPS.spd, ceilP(this.bonus('spd'))),
       gold: Math.min(STAT_CAPS.gold, ceilP(this.bonus('gold'))),
       drop: Math.min(STAT_CAPS.drop, ceilP(this.bonus('drop'))),
+      // v3.24 큐브 특수 옵션
+      normal: Math.min(STAT_CAPS.normal, ceilP(this.bonus('normal'))),
+      counter: Math.min(STAT_CAPS.counter, ceilP(this.bonus('counter'))),
+      double: Math.min(STAT_CAPS.double, ceilP(this.bonus('double'))),
+      mhit: Math.min(STAT_CAPS.mhit, ceilP(this.bonus('mhit'))),
     };
   }
 
@@ -127,19 +210,22 @@ export class Game {
   atkSpeed() {
     return (this.weaponDef()?.speed || 1) * buffMult(this.s, 'speed') * (1 + this.stats().spd);
   }
-  minHitFrac() { return BASE_MIN_HIT + (this.weaponDef()?.minHit || 0); }
+  minHitFrac(st = this.stats()) { return Math.min(0.95, BASE_MIN_HIT + (this.weaponDef()?.minHit || 0) + (st.mhit || 0)); }
 
   // 대상 몬스터 방어를 반영한 한 방 최대 피해
   maxHit(mDef = this.rt.monster?.def || 0, boss = !!this.rt.monster?.boss) {
     const st = this.stats();
-    return maxHitFor(this.style(), st, mDef * (1 - st.pen)) * st.dmg * (boss ? 1 + st.boss : 1);
+    return maxHitFor(this.style(), st, mDef * (1 - st.pen)) * st.dmg * (boss ? 1 + st.boss : 1 + st.normal);
   }
   // 평균 DPS (치명타 포함)
   dpsVs(mDef) {
     const st = this.stats();
     const mh = this.maxHit(mDef);
-    const avg = (mh * (1 + this.minHitFrac())) / 2;
-    return avg * (1 + st.crit * (st.cdmg - 1)) * this.atkSpeed();
+    const avg = (mh * (1 + this.minHitFrac(st))) / 2;
+    const m = this.rt.monster;
+    // 연속 공격 · 반격 (반격은 몬스터 공격 주기마다 확률)
+    const extra = 1 + st.double + (m && !m.dead ? st.counter / Math.max(0.2, m.interval) / Math.max(0.05, this.atkSpeed()) : 0);
+    return avg * (1 + st.crit * (st.cdmg - 1)) * this.atkSpeed() * extra;
   }
   totalDps() { return this.dpsVs(this.rt.monster?.def ?? monsterStats(this.s.stage).def); }
   // 전투력: 장착 장비 점수 합
@@ -151,7 +237,8 @@ export class Game {
   combatPower(st, style = this.style()) {
     const sty = STYLES[style];
     const atk = st[sty.stat] * (sty.stat === 'mag' ? 0.8 : 0.85);
-    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.25);
+    const off = atk * st.dmg * (1 + st.crit * (st.cdmg - 1)) * (1 + st.spd) * (this.weaponDef()?.speed || 1) * (1 + st.pen * 0.5) * (1 + st.boss * 0.25)
+      * (1 + (st.normal || 0) * 0.25) * (1 + (st.double || 0)) * (1 + (st.counter || 0) * 0.5) * (1 + (st.mhit || 0) * 0.5);
     const ehp = ((st.hp + st.def * 5) / Math.max(0.05, 1 - st.dr)) * (1 + st.regen * 5) * (1 + st.ls * 3);
     return Math.sqrt(Math.max(0, off) * ehp) / 10;
   }
@@ -242,6 +329,8 @@ export class Game {
 
   fx(o) {
     const rt = this.rt;
+    // 피해 · 공격 숫자 끄기 설정
+    if (this.s.settings.showDmg === false && (o.type === 'dmg' || o.type === 'hurt' || o.type === 'comp')) return;
     rt.fx.push({ t: 0, life: 0.9, dx: (Math.random() - 0.5) * 60, ...o });
     if (rt.fx.length > 70) rt.fx.splice(0, rt.fx.length - 70);
   }
@@ -257,13 +346,13 @@ export class Game {
     if (m.hp <= 0) this.killMonster();
   }
 
-  heroHit(isTap) {
+  heroHit(isTap, kind = '') {
     const rt = this.rt;
     const m = rt.monster;
     if (rt.heroDead > 0 || !m || m.dead) return;
     const st = this.stats();
     const mh = this.maxHit(m.def, m.boss);
-    const lo = mh * this.minHitFrac();
+    const lo = mh * this.minHitFrac(st);
     let dmg = lo + Math.random() * (mh - lo);
     const crit = Math.random() < st.crit;
     if (crit) dmg *= this.stats().cdmg;
@@ -272,7 +361,8 @@ export class Game {
     rt.shake = 0.15;
     const sty = this.style();
     const icon = sty === 'ranged' ? '🏹 ' : sty === 'magic' ? '✨ ' : '';
-    this.fx({ type: 'dmg', anchor: 'mon', text: (crit ? '치명! ' : icon) + fmt(dmg), crit, tap: isTap });
+    const tag = kind === 'double' ? '연속 ' : kind === 'counter' ? '반격 ' : '';
+    this.fx({ type: 'dmg', anchor: 'mon', text: tag + (crit ? '치명! ' : icon) + fmt(dmg), crit, tap: isTap });
     // 흡혈
     if (st.ls > 0) rt.heroHp = Math.min(this.heroMaxHp(), rt.heroHp + Math.min(dmg, m.hp) * st.ls);
     this.dealDamage(dmg);
@@ -405,8 +495,11 @@ export class Game {
   // 지금 대상 몬스터 기준으로 전투를 계산: 처치 시간 · 받는 피해 · 회복 → '분당 처치 수'(죽음 포함)
   combatCalc(st, style, m) {
     const wd = this.weaponDef();
-    const mh = maxHitFor(style, st, m.def * (1 - st.pen)) * st.dmg * (m.boss ? 1 + st.boss : 1);
-    const dps = (mh * (1 + this.minHitFrac())) / 2 * (1 + st.crit * (st.cdmg - 1)) * (wd?.speed || 1) * buffMult(this.s, 'speed') * (1 + st.spd);
+    const mh = maxHitFor(style, st, m.def * (1 - st.pen)) * st.dmg * (m.boss ? 1 + st.boss : 1 + (st.normal || 0));
+    const hit = (mh * (1 + this.minHitFrac(st))) / 2 * (1 + st.crit * (st.cdmg - 1));
+    const aps = (wd?.speed || 1) * buffMult(this.s, 'speed') * (1 + st.spd);
+    // 연속 공격 (공격마다) + 반격 (몬스터 공격마다)
+    const dps = hit * (aps * (1 + (st.double || 0)) + (st.counter || 0) / Math.max(0.2, m.interval));
     const ttk = m.hp / Math.max(1e-9, dps);
     const inc = (incomingHit(m.str, st.def) * (1 - st.dr)) / m.interval;
     const heal = st.hp * (REGEN + st.regen) + Math.min(dps, m.hp / Math.max(ttk, 0.1)) * st.ls;
@@ -441,6 +534,10 @@ export class Game {
       { k: 'pen', sp: true, label: '★ 방어 무시 +1%p', full: base.pen >= C.pen, f: add('pen', C.pen) },
       { k: 'cdmg', sp: true, label: '★ 치명타 피해 +1%p', full: base.cdmg - CRIT_MULT >= C.cdmg, f: add('cdmg', C.cdmg, CRIT_MULT) },
       { k: 'spd', sp: true, label: '★ 공격 속도 +1%p', full: base.spd >= C.spd, f: add('spd', C.spd) },
+      { k: 'normal', sp: true, label: '★ 일반 몬스터 피해 +1%p', full: base.normal >= C.normal, f: add('normal', C.normal) },
+      { k: 'counter', sp: true, label: '★ 반격 +1%p', full: base.counter >= C.counter, f: add('counter', C.counter) },
+      { k: 'double', sp: true, label: '★ 연속 공격 +1%p', full: base.double >= C.double, f: add('double', C.double) },
+      { k: 'mhit', sp: true, label: '★ 최소 피해 +1%p', full: base.mhit >= C.mhit, f: add('mhit', C.mhit) },
     ].filter((x) => !x.full);
     // 두 가지 순위: real = 지금 몬스터와의 실제 전투(분당 처치 증가) · power = 전투력(순수한 강함) 증가
     const p0 = this.combatPower(base, style);
@@ -494,7 +591,7 @@ export class Game {
     const pity = POT_TIERS[before].pity;
     const keep = [];
     for (const i of this.potLocks(it)) keep[i] = it.pot.lines[i];
-    const res = rollPot(before, Math.random, pity > 0 && it.pity >= pity, it.slot, keep, this.potLines(it));
+    const res = rollPot(before, Math.random, pity > 0 && it.pity >= pity, it.slot, keep, this.potLines(it), !!it.isAdd);
     if (res.t > before) it.pity = 0;
     if (!it.pot) {
       it.pot = res;
@@ -502,7 +599,7 @@ export class Game {
       this.dirtyStats();
     } else {
       it.potNew = res;
-      if (res.t > it.pot.t) { it.pot = { t: res.t, lines: it.pot.lines.map((l, i) => liftLine(l, i, res.t)) }; this.dirtyStats(); }
+      if (res.t > it.pot.t) { it.pot = { t: res.t, lines: it.pot.lines.map((l, i) => liftLine(l, i, res.t, !!it.isAdd)) }; this.dirtyStats(); }
     }
     this.rt.invDirty = true;
     return { ok: true, item: it, up: res.t > before, res };
@@ -523,6 +620,8 @@ export class Game {
       const items = SLOT_IDS.filter((sl) => this.s.equip[sl] && !(sl === 'shield' && this.twoHanded())).map((sl) => this.s.slots?.[sl]);
       const ap = this.s.world.pets.active;
       if (ap && this.s.world.pets.owned.includes(ap)) items.push(this.s.world.pets.data?.[ap]);
+      // 추가 잠재능력도 같은 곳에 붙음
+      for (const d of [...items]) if (d?.add) items.push(d.add);
       this.rt.potCache = potSum(items);
     }
     return this.rt.potCache[key] || 0;
@@ -568,7 +667,9 @@ export class Game {
 
   dropItem(luck, spec = null) {
     const s = this.s;
-    const r = rollRarity(luck);
+    // 프레스티지 '별의 축복': 등급을 더 굴림 (정수 부분 + 남은 확률)
+    const lk = this.prestigeBonus('luck');
+    const r = rollRarity(luck + Math.floor(lk) + (Math.random() < lk % 1 ? 1 : 0));
     const slot = spec?.slot || DROP_SLOTS[Math.floor(Math.random() * DROP_SLOTS.length)];
     const item = this.newItem(slot, r, s.stage, spec || {});
     this.fx({ type: 'loot', anchor: 'mon', text: '📦', color: RARITIES[r].color, life: 1.2 });
@@ -767,7 +868,20 @@ export class Game {
     return d;
   }
 
+  // 추가 잠재능력: 장비칸 · 펫마다 하나 (큐브 창에서 'aslot:칸' · 'apet:펫'으로 다룸)
+  addData(base) {
+    const a = (base.add ||= {});
+    a.id = 'a' + base.id;
+    a.slot = base.slot;
+    a.lvl = base.lvl;
+    a.isAdd = true;
+    return a;
+  }
   findItem(id) {
+    if (typeof id === 'string' && (id.startsWith('aslot:') || id.startsWith('apet:'))) {
+      const b = this.findItem(id.slice(1));
+      return b ? this.addData(b) : undefined;
+    }
     if (typeof id === 'string' && id.startsWith('slot:')) return SLOT_IDS.includes(id.slice(5)) ? this.slotData(id.slice(5)) : undefined;
     if (typeof id === 'string' && id.startsWith('pet:')) {
       const pid = id.slice(4);
@@ -780,7 +894,7 @@ export class Game {
   enhance(id) {
     const it = this.findItem(id);
     if (!it || it.enh >= ENHANCE_MAX) return false;
-    const cost = enhanceCost(it);
+    const cost = this.enhCost(it);
     if (cost > this.s.gold) return false;
     this.s.gold -= cost;
     it.enh++;
@@ -794,7 +908,7 @@ export class Game {
     if (!it) return { n: 0, cost: 0 };
     let n = 0, cost = 0, e = it.enh || 0;
     while (e < ENHANCE_MAX) {
-      const c = enhanceCost({ enh: e });
+      const c = this.enhCost({ enh: e });
       if (cost + c > this.s.gold) break;
       cost += c; e++; n++;
     }
@@ -861,7 +975,7 @@ export class Game {
   }
 
   // ---------- 오프라인 ----------
-  offlineCapSec() { return OFFLINE_CAP; }
+  offlineCapSec() { return OFFLINE_CAP + this.prestigeBonus('offh') * 3600; }
 
   // 오프라인: 지금 고른 몬스터를 계속 사냥한 것으로 계산 (효율 50%, 보스는 일반 몬스터로 대체)
   applyOffline(sec) {
@@ -971,6 +1085,8 @@ export class Game {
     while (rt.atkTimer >= 1) {
       rt.atkTimer -= 1;
       this.heroHit(false);
+      // 연속 공격: 확률로 한 번 더
+      if (!m.dead && st.double > 0 && Math.random() < st.double) this.heroHit(false, 'double');
       if (m.dead) { rt.atkTimer = Math.min(rt.atkTimer, 1); return; }
     }
 
@@ -981,7 +1097,9 @@ export class Game {
       const dmg = incomingHit(m.str, st.def) * (1 - st.dr);
       rt.heroHp -= dmg;
       this.fx({ type: 'hurt', anchor: 'hero', text: '-' + fmt(dmg), life: 0.8 });
-      if (rt.heroHp <= 0) this.heroDie();
+      if (rt.heroHp <= 0) { this.heroDie(); return; }
+      // 반격: 맞으면 확률로 바로 반격
+      if (st.counter > 0 && Math.random() < st.counter) this.heroHit(false, 'counter');
     }
   }
 }

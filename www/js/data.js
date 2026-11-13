@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.23.0';
+export const VERSION = '3.24.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -49,7 +49,7 @@ export const STYLES = {
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
 // 특수 옵션 최대치는 잠재능력 최고 등급(x38)에 맞춰 상향: 모든 수급처를 모으면 최대치의 1.4배 이상
-export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.9, spd: 3.5, dmg: 15, boss: 13, cdmg: 13, gold: 70, drop: 35 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.9, spd: 3.5, dmg: 15, boss: 13, cdmg: 13, gold: 70, drop: 35, normal: 13, counter: 0.5, double: 0.6, mhit: 0.45, xp: 8 };
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -401,30 +401,39 @@ export const POT_LINES = [
   { key: 'regen', b: 0.01, w: 6 },
   // 특수 옵션: 부위마다 1개, 영웅 등급부터 나오고 일반 옵션보다 수치가 훨씬 큼 (같은 옵션이 3줄 모두 나올 수도 있음)
   // 골드 · 드롭률처럼 전투와 상관없는 옵션은 특수 옵션으로만 나옴
-  { key: 'dmg', b: 0.035, w: 8, sp: true },
-  { key: 'boss', b: 0.15, w: 8, sp: true },
-  { key: 'pen', b: 0.03, w: 8, sp: true },
-  { key: 'cdmg', b: 0.15, w: 8, sp: true },
-  { key: 'spd', b: 0.02, w: 8, sp: true },
-  { key: 'gold', b: 0.4, w: 8, sp: true },
-  { key: 'drop', b: 0.2, w: 8, sp: true },
+  // v3.24: 부위마다 서로 다른 특수 옵션 (13종) · 각 옵션은 한 부위에서만 나오므로 줄당 수치가 큼
+  { key: 'dmg', b: 0.085, w: 8, sp: true },
+  { key: 'boss', b: 0.1, w: 8, sp: true },
+  { key: 'pen', b: 0.04, w: 8, sp: true },
+  { key: 'cdmg', b: 0.1, w: 8, sp: true },
+  { key: 'spd', b: 0.027, w: 8, sp: true },
+  { key: 'gold', b: 0.54, w: 8, sp: true },
+  { key: 'drop', b: 0.27, w: 8, sp: true },
+  { key: 'normal', b: 0.106, w: 8, sp: true },   // 일반 몬스터 피해
+  { key: 'counter', b: 0.004, w: 8, sp: true }, // 피격 시 반격 확률
+  { key: 'double', b: 0.005, w: 8, sp: true },  // 연속 공격 확률
+  { key: 'mhit', b: 0.0037, w: 8, sp: true },   // 최소 피해 (최대 피해 대비 %p)
+  { key: 'xp', b: 0.066, w: 8, sp: true },      // 생활 스킬 경험치
+  { key: 'stat', b: 0.03, w: 8, sp: true },     // 모든 능력치 (공격 · 방어 · 체력 %)
 ];
+// 추가 잠재능력: 같은 3줄(펫 5줄)이지만 수치는 잠재능력의 절반 · 같은 큐브를 사용
+export const ADD_POT_MULT = 0.5;
 export const POT_SP_MIN = 3; // 특수 옵션이 나오기 시작하는 등급 (영웅)
 // 부위별 특수 옵션 (부위마다 1개)
 export const POT_SPECIAL = {
-  weapon: 'dmg',
-  shield: 'boss',
-  helm: 'pen',
-  body: 'dmg',
-  legs: 'spd',
-  gloves: 'cdmg',
-  boots: 'spd',
-  amulet: 'gold',
-  ring1: 'drop',
-  ring2: 'drop',
-  cape: 'gold',
-  off: 'pen',
-  pet: 'dmg',
+  weapon: 'dmg',      // 모든 피해
+  shield: 'counter',  // 반격
+  helm: 'pen',        // 방어 무시
+  body: 'normal',     // 일반 몬스터 피해
+  legs: 'spd',        // 공격 속도
+  gloves: 'cdmg',     // 치명타 피해
+  boots: 'double',    // 연속 공격
+  amulet: 'gold',     // 골드
+  ring1: 'drop',      // 드롭률
+  ring2: 'xp',        // 생활 경험치
+  cape: 'boss',       // 보스 피해
+  off: 'mhit',        // 최소 피해
+  pet: 'stat',        // 모든 능력치
 };
 // 잠금: 잠근 줄 수에 따라 큐브(또는 골드) 소모 배수
 export const POT_LOCK_COST = [1, 3, 8, 20, 50];
@@ -433,35 +442,35 @@ export const PET_POT_LINES = 5;
 export const PET_ENH_MAX = 50;
 export const PET_ENH = { atk: 0.015, def: 0.02, hp: 0.02 }; // 강화 1레벨당
 export const petEnhCost = (lvl, L) => Math.ceil(goldPerKill(Math.max(1, lvl)) * 35 * Math.pow(1.23, L)); // 평생 유지되므로 예전보다 조금 비쌈
-export const potValue = (key, t) => {
+export const potValue = (key, t, add = false) => {
   const l = POT_LINES.find((x) => x.key === key);
-  return l ? Math.round(l.b * POT_MULT(t) * 1e4) / 1e4 : 0;
+  return l ? Math.round(l.b * POT_MULT(t) * (add ? ADD_POT_MULT : 1) * 1e4) / 1e4 : 0;
 };
 // 이 부위 · 등급에서 나올 수 있는 옵션 (같은 옵션이 여러 줄에 겹쳐 나올 수 있음)
 export function potPool(slot, tier) {
   const sp = tier >= POT_SP_MIN ? POT_SPECIAL[slot] : null;
   return POT_LINES.filter((l) => !l.sp || l.key === sp);
 }
-function potLine(tier, rnd, slot) {
+function potLine(tier, rnd, slot, add) {
   const pool = potPool(slot, tier);
   let x = rnd() * pool.reduce((a, l) => a + l.w, 0);
   let l = pool[0];
   for (const c of pool) { x -= c.w; if (x < 0) { l = c; break; } }
-  return [l.key, potValue(l.key, tier)];
+  return [l.key, potValue(l.key, tier, add)];
 }
 // 등급이 오를 때 기존 줄 수치를 새 등급 기준으로 끌어올림 (첫 줄은 지금 등급, 나머지는 한 단계 아래 이상)
-export function liftLine([k, v], i, t) {
-  return [k, Math.max(v, potValue(k, i === 0 ? t : Math.max(0, t - 1)))];
+export function liftLine([k, v], i, t, add = false) {
+  return [k, Math.max(v, potValue(k, i === 0 ? t : Math.max(0, t - 1), add))];
 }
 // 지금 등급 t로 3줄 굴림 (등급 상승 판정 포함, force면 천장으로 확정 상승)
 // keep: 잠근 줄 [i] = 기존 줄 (그대로 유지)
-export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep = [], n = 3) {
+export function rollPot(t = 0, rnd = Math.random, force = false, slot = '', keep = [], n = 3, add = false) {
   if (t < POT_TIERS.length - 1 && (force || rnd() < POT_TIERS[t].up)) t++;
   const lines = [];
   for (let i = 0; i < n; i++) {
     // 잠근 줄은 옵션 그대로, 등급이 오르면 수치도 새 등급만큼 오름
-    if (keep[i]) { lines.push(liftLine(keep[i], i, t)); continue; }
-    lines.push(potLine(i === 0 || rnd() < 0.2 || t === 0 ? t : t - 1, rnd, slot));
+    if (keep[i]) { lines.push(liftLine(keep[i], i, t, add)); continue; }
+    lines.push(potLine(i === 0 || rnd() < 0.2 || t === 0 ? t : t - 1, rnd, slot, add));
   }
   return { t, lines };
 }
@@ -472,7 +481,7 @@ export function potSum(items) {
   return out;
 }
 // 비교 점수에 쓰는 잠재능력 가치 (대략적인 전투력 환산)
-const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 5, drop: 0.03, gold: 0.03, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1 };
+const POT_VAL = { atk: 1, def: 0.4, hp: 0.4, crit: 1, ls: 3, dr: 3, regen: 5, drop: 0.03, gold: 0.03, dmg: 1.2, boss: 0.4, pen: 0.8, cdmg: 0.4, spd: 1.1, normal: 0.4, counter: 1, double: 1.2, mhit: 1, xp: 0.02, stat: 1.5 };
 export function potScore(it, style) {
   if (!it?.pot) return 0;
   const X = 60 * power(it.lvl);
@@ -589,3 +598,34 @@ export function lootTable(z, mi = 0) {
   lootCache.set(key, L);
   return L;
 }
+
+// ---------- 환생 · 프레스티지 ----------
+// 환생: 장비 · 장비칸 강화 · 골드 · 생활 스킬 레벨 · 재료 · 단계가 처음으로 돌아가고 프레스티지(✨)를 얻음
+// 유지: 박물관 · 생활 스킬 수련 · 잠재능력 / 추가 잠재능력 · 큐브 · 펫 · 퀘스트 · 설정 · 프레스티지 강화
+export const REBIRTH_MIN = 100; // 환생 가능한 최소 몬스터 레벨
+export const prestigeGain = (maxStage, mult = 1) => (maxStage < REBIRTH_MIN ? 0 : Math.floor(Math.pow(maxStage / 40, 1.8) * mult));
+// key: 효과 종류, v: 레벨당 효과, max: 최대 레벨, c: 첫 비용, g: 레벨마다 비용 배수
+export const PRESTIGE = [
+  // 전투
+  { id: 'atk', icon: '⚔️', name: '불멸의 무력', key: 'atk', v: 0.1, max: 500, c: 1, g: 1.12, desc: '모든 공격 스탯' },
+  { id: 'hp', icon: '❤️', name: '불멸의 육체', key: 'hp', v: 0.1, max: 500, c: 1, g: 1.12, desc: '최대 체력' },
+  { id: 'def', icon: '🛡️', name: '불멸의 갑주', key: 'def', v: 0.1, max: 500, c: 1, g: 1.12, desc: '방어' },
+  { id: 'dmg', icon: '💥', name: '영혼의 일격', key: 'dmg', v: 0.05, max: 100, c: 3, g: 1.18, desc: '모든 피해' },
+  { id: 'cdmg', icon: '🎯', name: '날카로운 영혼', key: 'cdmg', v: 0.05, max: 100, c: 3, g: 1.18, desc: '치명타 피해' },
+  { id: 'spd', icon: '⚡', name: '시간 가속', key: 'spd', v: 0.02, max: 50, c: 5, g: 1.22, desc: '공격 속도' },
+  // 재화 · 성장
+  { id: 'gold', icon: '💰', name: '황금의 기억', key: 'gold', v: 0.25, max: 100, c: 2, g: 1.15, desc: '골드' },
+  { id: 'drop', icon: '📦', name: '행운의 기억', key: 'drop', v: 0.1, max: 100, c: 2, g: 1.15, desc: '드롭률' },
+  { id: 'gain', icon: '✨', name: '윤회의 지혜', key: 'pgain', v: 0.1, max: 100, c: 5, g: 1.2, desc: '환생 때 얻는 프레스티지' },
+  { id: 'enh', icon: '🔨', name: '대장장이의 혼', key: 'edisc', v: 0.01, max: 60, c: 3, g: 1.15, desc: '장비칸 골드 강화 비용 감소' },
+  // 생활
+  { id: 'lxp', icon: '📘', name: '장인의 기억', key: 'lxp', v: 0.1, max: 200, c: 1, g: 1.12, desc: '생활 스킬 경험치' },
+  { id: 'lspd', icon: '⏱️', name: '숙련된 손', key: 'lspd', v: 0.03, max: 100, c: 2, g: 1.15, desc: '생활 스킬 행동 속도' },
+  { id: 'mdisc', icon: '📚', name: '수련의 길', key: 'mdisc', v: 0.01, max: 60, c: 3, g: 1.15, desc: '생활 스킬 수련 비용 감소' },
+  // 편의 · 시작 혜택
+  { id: 'cube', icon: '🎲', name: '큐브 상자', key: 'scube', v: 25, max: 100, c: 2, g: 1.15, desc: '환생할 때마다 받는 큐브 (개)', flat: true },
+  { id: 'zone', icon: '🗺️', name: '지름길', key: 'szone', v: 1, max: 60, c: 4, g: 1.2, desc: '환생 직후 열려 있는 지역 수 (최고 기록 절반까지)', flat: true },
+  { id: 'off', icon: '🌙', name: '꿈속 원정', key: 'offh', v: 1, max: 18, c: 5, g: 1.35, desc: '오프라인 최대 시간 (시간)', flat: true },
+  { id: 'luck', icon: '🍀', name: '별의 축복', key: 'luck', v: 0.05, max: 60, c: 5, g: 1.2, desc: '장비 등급 운' },
+];
+export const prestigeCost = (p, L) => Math.ceil(p.c * Math.pow(p.g, L));

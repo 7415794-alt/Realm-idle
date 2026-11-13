@@ -28,6 +28,23 @@ function restartWith(state) {
   setTimeout(() => location.replace(location.href.split('#')[0]), 30);
 }
 
+// 화면 꺼짐(화면 보호기) 방지: 게임을 켜 둔 동안 화면을 계속 켜 둠
+// (앱은 네이티브 FLAG_KEEP_SCREEN_ON도 함께 사용, 웹은 Wake Lock API)
+let wakeLock = null;
+async function requestWake() {
+  try {
+    if (!('wakeLock' in navigator) || document.hidden || wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) { wakeLock = null; }
+}
+function keepAwake() {
+  requestWake();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) requestWake(); });
+  // 일부 브라우저는 사용자 입력이 있어야 허용
+  window.addEventListener('pointerdown', requestWake, { passive: true });
+}
+
 function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
@@ -71,6 +88,7 @@ function init() {
   const away = (Date.now() - state.lastSeen) / 1000;
   if (away >= OFFLINE_MIN_SEC && state.stats.playTime > 0) ui.showOffline(game.applyOffline(away));
 
+  keepAwake();
   setInterval(save, AUTOSAVE_SEC * 1000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
   window.addEventListener('pagehide', save);

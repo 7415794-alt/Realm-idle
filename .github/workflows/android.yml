@@ -85,6 +85,27 @@ jobs:
           GRADLE
           tail -16 android/app/build.gradle
 
+      - name: 게임 중 화면 꺼짐 방지 (FLAG_KEEP_SCREEN_ON)
+        run: |
+          F=$(find android/app/src/main/java -name MainActivity.java | head -1)
+          PKG=$(grep -m1 '^package ' "$F")
+          cat > "$F" <<JAVA
+          $PKG
+
+          import android.os.Bundle;
+          import android.view.WindowManager;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+              }
+          }
+          JAVA
+          cat "$F"
+
       - name: 웹 파일 반영
         run: npx cap sync android
 

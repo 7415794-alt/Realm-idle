@@ -502,6 +502,39 @@ export function upgradeTool(game, key) {
   return true;
 }
 
+// ---------- 생활 스킬 수련 (스킬마다 Lv 0~999, 환생해도 유지) ----------
+// 1레벨마다 경험치 +1% · 행동 속도 +0.4% (Lv 999: 경험치 x10.99 · 시간 1/5)
+export const MASTERY_MAX = 999;
+export const masteryLv = (s, id) => Math.min(MASTERY_MAX, s.mastery?.[id] || 0);
+export const masteryXp = (L) => 1 + 0.01 * L;
+export const masterySpeed = (L) => 1 + 0.004 * L;
+export const masteryCost = (L) => Math.ceil(30 * Math.pow(L + 1, 1.6));
+// 바깥(게임)에서 넣어 주는 추가 보너스: 잠재능력 생활 경험치 · 프레스티지
+export const lifeHooks = { xp: () => 0, speed: () => 0 };
+// max면 가진 골드로 올릴 수 있는 만큼 (n: 올린 레벨 수)
+export function upgradeMastery(game, id, max = false) {
+  const s = game.s;
+  s.mastery ||= {};
+  let n = 0;
+  while (masteryLv(s, id) < MASTERY_MAX) {
+    const c = masteryCost(masteryLv(s, id)) * (1 - (lifeHooks.masteryDisc?.() || 0));
+    const cost = Math.ceil(c);
+    if (s.gold < cost) break;
+    s.gold -= cost;
+    s.mastery[id] = masteryLv(s, id) + 1;
+    n++;
+    if (!max) break;
+  }
+  return n;
+}
+// 지금 골드로 몇 레벨 · 총 비용
+export function masteryPlan(s, id) {
+  let L = masteryLv(s, id), g = s.gold, n = 0, sum = 0;
+  const d = 1 - (lifeHooks.masteryDisc?.() || 0);
+  while (L < MASTERY_MAX) { const c = Math.ceil(masteryCost(L) * d); if (g < c) break; g -= c; sum += c; L++; n++; }
+  return { n, sum };
+}
+
 // 행동 속도 배율: 채집은 도구, 가공은 작업대, 그리고 기도 · 숙련(요구 레벨 초과분, 최대 +25%)
 export function speedMult(s, skillId, act) {
   let m = 1 + Math.min(0.25, 0.005 * Math.max(0, lifeLevel(s, skillId) - act.lvl));
@@ -509,11 +542,13 @@ export function speedMult(s, skillId, act) {
   if (k.tool) m *= toolInfo(s, k.tool).cur.speed * (1 + allBonus(s, 'gather'));
   else if (k.kind === '채집') m *= 1 + allBonus(s, 'gather');
   if (PRODUCTION.includes(skillId)) m *= toolInfo(s, 'workshop').cur.speed * (1 + allBonus(s, 'prod'));
-  return m;
+  return m * masterySpeed(masteryLv(s, skillId)) * (1 + lifeHooks.speed());
 }
 export function actionTime(s, skillId, act) { return act.time / speedMult(s, skillId, act); }
 
-export function actionXp(s, act) { return act.xp * xpScale(act.lvl) * VIP.mult * (1 + allBonus(s, 'xp')); }
+export function actionXp(s, act, skillId) {
+  return act.xp * xpScale(act.lvl) * VIP.mult * (1 + allBonus(s, 'xp') + lifeHooks.xp()) * (skillId ? masteryXp(masteryLv(s, skillId)) : 1);
+}
 
 export function burnChance(s, skillId, act) {
   if (!LIFE[skillId].burn) return 0;
@@ -641,7 +676,7 @@ function completeAction(game, skillId, act, log) {
   }
 
   if (Math.random() < burnChance(s, skillId, act)) {
-    gainXp(game, skillId, actionXp(s, act) * 0.2, log);
+    gainXp(game, skillId, actionXp(s, act, skillId) * 0.2, log);
     if (log) log.burned++;
     return true;
   }
@@ -661,7 +696,7 @@ function completeAction(game, skillId, act, log) {
       if (log) log.equips.push(item);
     }
   }
-  gainXp(game, skillId, actionXp(s, act) * (skillId === 'divine' ? times : 1), log);
+  gainXp(game, skillId, actionXp(s, act, skillId) * (skillId === 'divine' ? times : 1), log);
   questEvent(s, 'life', 1, skillId);
   rollSkillPet(game, skillId, act);
   return true;

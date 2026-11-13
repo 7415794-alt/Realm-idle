@@ -34,8 +34,9 @@ export const BONUS_NAMES = {
   gold: '골드', drop: '드롭률', gather: '채집 속도', prod: '가공 속도', xp: '생활 경험치',
   regen: '초당 체력 회복', ls: '흡혈', dr: '피해 감소', crit: '치명타',
   boss: '보스 피해', pen: '방어 무시', cdmg: '치명타 피해', spd: '공격 속도',
+  normal: '일반 몬스터 피해', counter: '반격', double: '연속 공격', mhit: '최소 피해', stat: '모든 능력치',
 };
-const FLAT = ['regen', 'ls', 'dr', 'crit'];
+const FLAT = ['regen', 'ls', 'dr', 'crit', 'counter', 'double', 'mhit'];
 export function bonusText(b) {
   return Object.entries(b).map(([k, v]) => {
     if (k.startsWith('x_')) return `${LIFE[k.slice(2)].name} 결과물 2배 ${Math.round(v * 100)}%`;
