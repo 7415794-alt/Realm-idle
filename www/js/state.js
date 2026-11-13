@@ -197,9 +197,25 @@ export function exportState(state) {
   return btoa(unescape(encodeURIComponent(json)));
 }
 
+// 붙여넣는 과정에서 끼어든 줄바꿈 · 공백 · 따옴표 등을 지우고 읽음 (메모 앱 · 메신저를 거쳐도 동작)
 export function importState(str) {
-  const json = decodeURIComponent(escape(atob(str.trim())));
-  const obj = JSON.parse(json);
-  if (!isObj(obj) || typeof obj.stage !== 'number') throw new Error('잘못된 세이브 코드');
+  const raw = String(str || '').trim();
+  if (!raw) throw new Error('세이브 코드가 비어 있습니다');
+  let obj = null;
+  if (raw.startsWith('{')) {
+    try { obj = JSON.parse(raw); } catch (e) { /* 아래에서 다시 시도 */ }
+  }
+  if (!obj) {
+    let b = raw.replace(/[^A-Za-z0-9+/=_-]/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+    while (b.length % 4) b += '=';
+    let json;
+    try { json = decodeURIComponent(escape(atob(b))); } catch (e) {
+      throw new Error(`코드를 읽을 수 없습니다 (${raw.replace(/s+/g, '').length}자). 코드가 중간에 잘렸거나 일부가 바뀐 것 같습니다`);
+    }
+    try { obj = JSON.parse(json); } catch (e) {
+      throw new Error(`코드가 끝까지 복사되지 않았습니다 (${raw.replace(/s+/g, '').length}자). 처음부터 끝까지 전부 복사해 주세요`);
+    }
+  }
+  if (!isObj(obj) || typeof obj.stage !== 'number') throw new Error('이 게임의 세이브 코드가 아닙니다');
   return hydrate(obj);
 }

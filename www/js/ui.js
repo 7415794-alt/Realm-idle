@@ -1567,12 +1567,25 @@ export class UI {
     const bExport = h('button', 'btn', '세이브 내보내기');
     bExport.addEventListener('click', () => {
       const code = exportState(s);
-      this.modal('세이브 코드', `<p class="muted">이 코드를 복사해 다른 기기에서 불러올 수 있습니다.</p><textarea readonly class="code">${code}</textarea>`,
-        [{ label: '복사', cls: 'primary', onClick: (box) => { navigator.clipboard?.writeText(code).then(() => this.toast('복사됨', 'good')).catch(() => { $('textarea', box).select(); }); return true; } }, { label: '닫기' }]);
+      this.modal('세이브 코드', `<p class="muted">이 코드를 처음부터 끝까지 전부 복사해 보관하세요 (총 ${code.length.toLocaleString()}자). 불러올 때 글자 수가 같은지 확인할 수 있습니다.</p><textarea readonly class="code">${code}</textarea>`,
+        [{ label: '복사', cls: 'primary', onClick: (box) => {
+          // 앱(웹뷰)에서 클립보드 API가 막히면 선택 후 execCommand로 복사
+          const ta = $('textarea', box);
+          const fallback = () => {
+            ta.removeAttribute('readonly'); ta.focus(); ta.select(); ta.setSelectionRange(0, code.length);
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            ta.setAttribute('readonly', '');
+            this.toast(ok ? `복사됨 (${code.length.toLocaleString()}자)` : '자동 복사가 안 됩니다. 코드를 길게 눌러 전체 선택 후 복사하세요', ok ? 'good' : 'bad');
+          };
+          if (navigator.clipboard?.writeText) navigator.clipboard.writeText(code).then(() => this.toast(`복사됨 (${code.length.toLocaleString()}자)`, 'good')).catch(fallback);
+          else fallback();
+          return true;
+        } }, { label: '닫기' }]);
     });
     const bImport = h('button', 'btn', '세이브 불러오기');
     bImport.addEventListener('click', () => {
-      this.modal('세이브 불러오기', '<textarea class="code" placeholder="세이브 코드를 붙여넣으세요"></textarea>',
+      const box0 = this.modal('세이브 불러오기', '<textarea class="code" placeholder="세이브 코드를 붙여넣으세요"></textarea><p class="muted impcount">붙여넣은 코드: 0자</p>',
         [{ label: '취소' }, {
           label: '불러오기', cls: 'primary', onClick: (box) => {
             try {
@@ -1580,11 +1593,18 @@ export class UI {
               this.hooks.onImport(st2);
               return false;
             } catch (e) {
-              this.toast('잘못된 세이브 코드입니다', 'bad');
+              console.warn('세이브 불러오기 실패', e);
+              const msg = e?.message && /[가-힣]/.test(e.message) ? e.message : `불러오기 실패: ${e?.message || e}`;
+              this.toast(msg, 'bad');
+              const c = $('.impcount', box);
+              if (c) { c.textContent = msg; c.style.color = '#ff7a7a'; }
               return true;
             }
           },
         }]);
+      const ta = $('textarea', box0);
+      const cnt = $('.impcount', box0);
+      ta?.addEventListener('input', () => { cnt.style.color = ''; cnt.textContent = `붙여넣은 코드: ${ta.value.replace(/\s+/g, '').length.toLocaleString()}자`; });
     });
     const bReset = h('button', 'btn danger', '데이터 초기화');
     bReset.addEventListener('click', () => {
