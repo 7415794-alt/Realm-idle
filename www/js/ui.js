@@ -493,7 +493,7 @@ export class UI {
     let spTag = '';
     if (spKey) {
       if (hasItemSp(it)) {
-        const v = itemSpValue(it);
+        const v = itemSpValue(it) * (1 + 0.01 * (sd?.enh || 0)); // 칸 강화 1회마다 +1%
         baseSt[spKey] -= v;
         if (baseSt[spKey] < 1e-9) delete baseSt[spKey];
         spTag = `<div class="ispline">★ 특수 옵션 · ${STAT_NAMES[spKey]} +${statVal(spKey, v)}</div>`;
@@ -805,7 +805,7 @@ export class UI {
     // 장비칸 카드: 칸 강화 · 칸 잠재능력
     const sd = g.slotData(sel);
     const sc = h('div', 'card slotcard', `
-      <div><b>${SLOTS[sel].icon} ${SLOTS[sel].name} 칸</b> <small>강화 +${sd.enh} / ${ENHANCE_MAX}</small> <span class="muted">· 장비를 바꿔도 칸에 남음</span></div>
+      <div><b>${SLOTS[sel].icon} ${SLOTS[sel].name} 칸</b> <small>강화 +${sd.enh} / ${ENHANCE_MAX}</small> <span class="muted">· 1회마다 공격 · 방어 · 체력 +5%, 특수 스탯 +1% · 장비를 바꿔도 칸에 남음</span></div>
       <div class="potline">${sd.pot ? `<span style="color:${POT_TIERS[sd.pot.t].color}">◆ ${POT_TIERS[sd.pot.t].name}</span> · ${sd.pot.lines.map(([k, v]) => bonusText({ [k]: v })).join(' / ')}` : '잠재능력 없음 (큐브로 개방)'}</div>
       <div class="cubebtns"></div>`);
     const cb = h('button', 'btn', '🎲 칸 큐브');

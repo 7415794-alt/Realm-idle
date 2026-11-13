@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.14.1';
+export const VERSION = '3.15.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -19,7 +19,8 @@ export const power = (lvl) => Math.pow(1.02, Math.max(1, lvl) - 1);
 export const MON_GROWTH = 1.0427;
 export const monPower = (stage) => Math.pow(MON_GROWTH, Math.max(1, stage) - 1);
 // 골드는 예전 계산식의 1/100 (번 골드 · 쓰는 골드 모두)
-export const goldPerKill = (s) => (2 * Math.pow(1.13, s - 1)) / 100;
+// 성장률 1.13 → 1.10: 후반 골드가 고정 비용(칸 강화 · 도구) 대비 너무 빨리 불어나지 않게
+export const goldPerKill = (s) => (2 * Math.pow(1.1, s - 1)) / 100;
 
 // 몬스터 능력치 (hp: 체력, def: 방어, str: 힘 → 받는 피해)
 export function monsterStats(stage, kind = 'normal') {
@@ -333,6 +334,8 @@ export function itemStats(it) {
   const out = {};
   const R = RARITIES[it.r].mult;
   const g = R * (1 + 0.05 * (it.enh || 0)) * tierPow(it.lvl);
+  // 특수 스탯(치명타 · 흡혈 · 피해 감소 · 회복)도 강화 1회마다 +1%씩 (최대 +99 → x1.99)
+  const e = 1 + 0.01 * (it.enh || 0);
   const add = (k, v) => { out[k] = (out[k] || 0) + v; };
   for (const [k, v] of Object.entries(baseStats(it))) {
     if (k === 'off') {
@@ -340,9 +343,9 @@ export function itemStats(it) {
       add('melee', v * g * w.melee);
       add('rng', v * g * w.ranged);
       add('mag', v * g * w.magic);
-    } else add(k, GROW.includes(k) ? v * g : v * R * (1 + 0.1 * itemTier(it.lvl)));
+    } else add(k, GROW.includes(k) ? v * g : v * R * (1 + 0.1 * itemTier(it.lvl)) * e);
   }
-  if (hasItemSp(it) && ITEM_SP[it.slot]) add(ITEM_SP[it.slot], itemSpValue(it));
+  if (hasItemSp(it) && ITEM_SP[it.slot]) add(ITEM_SP[it.slot], itemSpValue(it) * e);
   return out;
 }
 
