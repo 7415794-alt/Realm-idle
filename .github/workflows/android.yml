@@ -65,6 +65,26 @@ jobs:
           sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="portrait"/' android/app/src/main/AndroidManifest.xml
           grep -n "versionCode\|versionName" android/app/build.gradle
 
+      - name: 고정 서명 키 지정 (빌드마다 같은 키 → 덮어 설치 가능)
+        run: |
+          cat >> android/app/build.gradle <<'GRADLE'
+
+          android {
+              signingConfigs {
+                  debug {
+                      storeFile file("${rootDir}/../tools/android/debug.keystore")
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
+              buildTypes {
+                  debug { signingConfig signingConfigs.debug }
+              }
+          }
+          GRADLE
+          tail -16 android/app/build.gradle
+
       - name: 웹 파일 반영
         run: npx cap sync android
 
@@ -84,6 +104,12 @@ jobs:
             exit 1
           fi
           cp app/build/outputs/apk/debug/app-debug.apk ../aether-expedition.apk
+          # 서명 키 확인: 저장소의 고정 키(SHA1 A0:23:B9...)가 아니면 실패 처리
+          keytool -printcert -jarfile ../aether-expedition.apk | tee ../cert.txt
+          if ! grep -q "A0:23:B9:71:E9:37:A3:5F:F1:B4:4A:4D:88:B1:80:65:B8:E2:A8:56" ../cert.txt; then
+            echo "::error::APK가 고정 서명 키로 서명되지 않음"
+            exit 1
+          fi
 
       - name: 릴리스에 올리기
         uses: softprops/action-gh-release@v2
