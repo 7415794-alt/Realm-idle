@@ -210,10 +210,10 @@ export function importState(str) {
     while (b.length % 4) b += '=';
     let json;
     try { json = decodeURIComponent(escape(atob(b))); } catch (e) {
-      throw new Error(`코드를 읽을 수 없습니다 (${raw.replace(/s+/g, '').length}자). 코드가 중간에 잘렸거나 일부가 바뀐 것 같습니다`);
+      throw new Error(`코드를 읽을 수 없습니다 (${raw.replace(/\s+/g, '').length}자). 코드가 중간에 잘렸거나 일부가 바뀐 것 같습니다`);
     }
     try { obj = JSON.parse(json); } catch (e) {
-      throw new Error(`코드가 끝까지 복사되지 않았습니다 (${raw.replace(/s+/g, '').length}자). 처음부터 끝까지 전부 복사해 주세요`);
+      throw new Error(`코드가 끝까지 복사되지 않았습니다 (${raw.replace(/\s+/g, '').length}자). 처음부터 끝까지 전부 복사해 주세요`);
     }
   }
   if (!isObj(obj) || typeof obj.stage !== 'number') throw new Error('이 게임의 세이브 코드가 아닙니다');
