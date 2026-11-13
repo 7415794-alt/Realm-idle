@@ -2,7 +2,7 @@
 import { fmt } from './format.js';
 
 export const GAME_NAME = '에테르 원정기';
-export const VERSION = '3.15.0';
+export const VERSION = '3.16.0';
 // VIP: 원래 유료 등급이지만 모든 플레이어에게 무료로 최고 등급(VIP++) 적용
 export const VIP = { name: 'VIP++', mult: 1.75, label: '+75%' };
 
@@ -45,7 +45,7 @@ export const STYLES = {
 };
 export const STYLE_IDS = Object.keys(STYLES);
 export const HERO_BASE = { melee: 10, rng: 10, mag: 10, def: 0, hp: 100, crit: 0.05, ls: 0, dr: 0, regen: 0 };
-export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.7, spd: 1, dmg: 5, boss: 8, cdmg: 8, gold: 20, drop: 10 };
+export const STAT_CAPS = { crit: 0.75, ls: 0.25, dr: 0.6, regen: 0.08, pen: 0.7, spd: 1, dmg: 5, boss: 8, cdmg: 8, gold: 3, drop: 10 }; // 골드 보너스 최대 +300% (예전 +2000%)
 export const CRIT_MULT = 1.5;
 export const BASE_MIN_HIT = 0.15;   // 최소 피해 = 최대 피해의 15% (+무기 보너스)
 // 전투 방식별 한 방 최대 피해
@@ -393,7 +393,7 @@ export const POT_LINES = [
   { key: 'pen', b: 0.04, w: 8, sp: true },
   { key: 'cdmg', b: 0.16, w: 8, sp: true },
   { key: 'spd', b: 0.035, w: 8, sp: true },
-  { key: 'gold', b: 0.3, w: 8, sp: true },
+  { key: 'gold', b: 0.1, w: 8, sp: true },
   { key: 'drop', b: 0.2, w: 8, sp: true },
 ];
 export const POT_SP_MIN = 3; // 특수 옵션이 나오기 시작하는 등급 (영웅)

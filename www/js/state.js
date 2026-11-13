@@ -5,7 +5,7 @@ import { WEAPONS, potValue } from './data.js';
 
 const KEY = 'aether-expedition-save-v1';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 export function newState() {
   return {
@@ -52,6 +52,7 @@ function migrate(obj) {
   if (obj.v < 5) obj = migrateV4(obj);
   if (obj.v < 6) obj = migrateV5(obj);
   if (obj.v < 7) obj = migrateV6(obj);
+  if (obj.v < 8) obj = { ...obj, v: 8, gold: 0 }; // v3.16: 너무 많이 쌓인 골드 초기화 (한 번만)
   return obj;
 }
 // v3 → v4: 전투 스킬 제거, 전투 방식을 직접 선택 (지금 무기의 방식으로 시작)
