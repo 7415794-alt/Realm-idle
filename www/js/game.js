@@ -788,6 +788,24 @@ export class Game {
     this.rt.invDirty = true;
     return true;
   }
+  // 가진 골드로 할 수 있는 만큼 강화했을 때 { 횟수, 총비용 }
+  enhanceMaxPlan(id) {
+    const it = this.findItem(id);
+    if (!it) return { n: 0, cost: 0 };
+    let n = 0, cost = 0, e = it.enh || 0;
+    while (e < ENHANCE_MAX) {
+      const c = enhanceCost({ enh: e });
+      if (cost + c > this.s.gold) break;
+      cost += c; e++; n++;
+    }
+    return { n, cost };
+  }
+  // 골드가 허락하는 만큼 한 번에 강화
+  enhanceMax(id) {
+    let n = 0;
+    while (this.enhance(id)) n++;
+    return n;
+  }
 
   // ---------- 장비 조합 ----------
   // 가방 속 같은 부위 · 같은 등급 장비 3개 → 한 단계 높은 등급 1개

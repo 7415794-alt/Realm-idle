@@ -596,7 +596,9 @@ export class UI {
     panel.appendChild(head);
     if (!s.inv.length) panel.appendChild(h('div', 'muted center pad', '가방이 비어 있습니다'));
     // 가방은 무제한: 한 번에 그리는 수를 제한하고 '더 보기'
-    const sorted = [...s.inv].sort((a, b) => g.upgradeGain(b) - g.upgradeGain(a));
+    // 정렬 기준(장착 시 변화)은 장비마다 한 번만 계산 (가방이 커도 빠르게)
+    const gain = new Map(s.inv.map((it) => [it, g.upgradeGain(it)]));
+    const sorted = [...s.inv].sort((a, b) => gain.get(b) - gain.get(a));
     this.bagShow ||= 40;
     for (const it of sorted.slice(0, this.bagShow)) panel.appendChild(this.itemCard(it, false));
     if (sorted.length > this.bagShow) {
@@ -818,7 +820,7 @@ export class UI {
       <div class="cubebtns"></div>`);
     const cb = h('button', 'btn', '🎲 칸 큐브');
     cb.addEventListener('click', () => this.openCube(sd.id));
-    $('.cubebtns', sc).append(this.slotEnhBtn(sel, 'btn primary'), cb);
+    $('.cubebtns', sc).append(this.slotEnhBtn(sel, 'btn primary'), this.slotEnhMaxBtn(sel), cb);
     panel.appendChild(sc);
     const it = s.equip[sel];
     if (!it) { panel.appendChild(h('div', 'card muted center', `${SLOTS[sel].name} 칸에 낀 장비가 없습니다 (칸 강화 · 잠재능력은 장비를 끼면 적용)`)); return; }
@@ -834,10 +836,30 @@ export class UI {
     b.addEventListener('click', () => {
       if (g.enhance(sd.id)) { this.toast(`${SLOTS[sl].name} 칸 +${sd.enh} 강화 성공!`, 'good'); this.showTab(this.tab, true); }
     });
+    let last = '';
     this.updaters.push(() => {
       const c = enhanceCost(sd);
-      b.innerHTML = sd.enh >= ENHANCE_MAX ? '칸 강화 MAX' : `칸 강화 +${sd.enh + 1}<br><small>💰 ${fmt(c)} · ${g.s.equip[sl] ? pwr(ed) : '장비 없음'}</small>`;
+      const html = sd.enh >= ENHANCE_MAX ? '칸 강화 MAX' : `칸 강화 +${sd.enh + 1}<br><small>💰 ${fmt(c)} · ${g.s.equip[sl] ? pwr(ed) : '장비 없음'}</small>`;
+      if (html !== last) { b.innerHTML = html; last = html; }
       setDisabled(b, sd.enh >= ENHANCE_MAX || c > g.s.gold);
+    });
+    return b;
+  }
+  // 가진 골드만큼 한 번에 강화 (MAX)
+  slotEnhMaxBtn(sl, cls = 'btn') {
+    const g = this.game;
+    const sd = g.slotData(sl);
+    const b = h('button', cls);
+    b.addEventListener('click', () => {
+      const n = g.enhanceMax(sd.id);
+      if (n > 0) { this.toast(`${SLOTS[sl].name} 칸 +${n} 강화 → +${sd.enh}`, 'good'); this.showTab(this.tab, true); }
+    });
+    let last = '';
+    this.updaters.push(() => {
+      const p = sd.enh >= ENHANCE_MAX ? { n: 0, cost: 0 } : this.cached('enhmax:' + sl + ':' + sd.enh + ':' + Math.floor(g.s.gold), () => g.enhanceMaxPlan(sd.id));
+      const html = sd.enh >= ENHANCE_MAX ? '최대 강화 MAX' : p.n > 0 ? `최대 강화 +${p.n}<br><small>→ +${sd.enh + p.n} · 💰 ${fmt(p.cost)}</small>` : '최대 강화<br><small>골드 부족</small>';
+      if (html !== last) { b.innerHTML = html; last = html; }
+      setDisabled(b, p.n <= 0);
     });
     return b;
   }
